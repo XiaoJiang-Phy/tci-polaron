@@ -171,35 +171,38 @@ class TCIFitter:
         return np.array([self.domain[d][idx] for d, idx in enumerate(path_indices)])
 
     def get_tci_integral(self):
-        """基于当前 pivot paths 估计 TCI 积分的近似值。
-
-        该实现为示例版，假设 rank=1 时更为合理；对于更高秩需要更完善的归一化策略。
         """
-
-        # 1. 获取最优路径上的中心点值（Core value）。取第一条路径作为代表。
+        全向量化积分计算：消除维度内的点循环
+        """
+        # 1. 选定第一条路径作为参考（Rank-1 近似积分）
         p = self.pivot_paths[0]
-        f_max = self.func(self._path_to_coords(p))
+        f_max = float(self.func(self._path_to_coords(p))) # 强制转标量
+        
+        if abs(f_max) < 1e-15: return 0.0
 
-        # 防止除零或数值不稳定性。
-        if np.abs(f_max) < 1e-15:
-            return 0
-
-        # 2. 计算每个维度的 1D 积分贡献，按维度逐个替换并累乘归一化因子。
-        integral = f_max
+        # 2. 计算每个维度的 1D 积分贡献
+        # 相比于原来的 for 循环，我们这里一次性构造当前维度的所有坐标点
+        integral_factor = 1.0
         for d in range(self.n_dims):
-            dim_sum = 0
-            for i_val, val in enumerate(self.domain[d]):
-                # 构造路径索引：固定其他维度为 pivot paths，改变第 d 维的索引。
-                full_idx = self.pivot_paths[0].copy()
-                full_idx[d] = i_val
-                dim_sum += self.func(self._path_to_coords(full_idx))
+            # 构造“一维扫描”所需的坐标集：固定其他维度，只变动维度 d
+            # 我们巧妙地利用 _assemble_all_coords 逻辑，此时 r_prev=1, r_next=1
+            left_idx = p[:d][np.newaxis, :]
+            right_idx = p[d+1:][np.newaxis, :]
+            
+            # 一次性获取该轴上所有 50 个点的函数值
+            sample_matrix = self._build_sweep_matrix_vectorized(d, left_idx, right_idx)
+            
+            # sample_matrix 形状是 (n_curr, 1)，求和得到该维度的积分贡献
+            dim_sum = np.sum(sample_matrix)
+            
+            # 累乘贡献比
+            integral_factor *= (dim_sum / f_max)
 
-            # TCI 的积分恒等式：按维度归一化累乘。
-            integral *= (dim_sum / f_max)
-
-        # 3. 乘以网格步长 dx^N 并返回。
+        # 3. 最终汇总：基准值 * 贡献比 * 总体积步长
         dx = self.domain[0][1] - self.domain[0][0]
-        return integral * (dx ** self.n_dims)
+        total_integral = f_max * integral_factor * (dx ** self.n_dims)
+        
+        return float(total_integral)
     
     def evaluate(self, point_indices):
         """利用 pivot paths 对给定网格点进行简单的近似重构。
