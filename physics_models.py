@@ -1,17 +1,16 @@
-# physics_models.py
 import numpy as np
 
 def vectorized_gaussian(coords):
     """
-    coords: 形状可以是 (N,) 或 (M, N)
+    coords: (M, N) 物理坐标
     """
-    # 强制转换为 2D，确保 axis=1 始终有效
-    coords = np.atleast_2d(coords) 
+    coords = np.atleast_2d(coords)
+    # 简单的 Gaussian 变体：exp(-sum(x^2))
+    # 极化子计算中通常对应 exp(-lambda * x^2)
     return np.exp(-np.sum(coords**2, axis=1))
 
 def vectorized_holstein(coords):
     """
-    未来的极化子函数也需要支持 axis=1 操作
+    Placeholder for Polaron model
     """
-    # ... 实现逻辑 ...
     pass

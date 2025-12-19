@@ -1,253 +1,115 @@
 import numpy as np
-from scipy.linalg import lu, solve
+from scipy.linalg import lu
 
 class TCIFitter:
-    """TCI 拟合器，用于基于张量交叉插值方法的快速原型验证。"""
-
-    def __init__(self, func, domain, rank=5):
+    def __init__(self, func, domain, rank=10):
         self.func = func
         self.domain = domain
         self.n_dims = len(domain)
         self.rank = rank
-        # 初始化路径矩阵 (r, N)。默认随机采样作为初始猜测。
+        # 保持 pivot_paths 为整数索引
         self.pivot_paths = np.zeros((rank, self.n_dims), dtype=int)
         for d in range(self.n_dims):
-            self.pivot_paths[:, d] = np.random.choice(len(domain[d]), rank)
+            self.pivot_paths[:, d] = np.random.randint(0, len(domain[d]), size=rank)
 
-    # ... _get_maxvol, _update_paths, get_tci_integral 保持不变 ...
-    def _get_maxvol(self, matrix, tolerance=1.05):
-        """简易的 MaxVol 行选择算法。
-
-        该实现用于从矩阵中挑选出使得子矩阵体积较大的 r 行，作为近似的 pivots。
-
-        参数：
-            matrix: 输入矩阵，形状为 (m, r)，其中 m 是样本数，r 是秩近似值。
-            tolerance: 容忍度，若更新项的绝对值大于该阈值则替换对应的行索引。
-        """
-        # 1. 使用 LU 分解获得初始索引 I。此处仅作为初始猜测，具体实现可替换为更稳健的方法。
-        p, _, _ = lu(matrix, p_indices=True)
-        I = list(p[:matrix.shape[1]])
-
-        # 2. 迭代改进索引 I
-        for _ in range(100):  # 最大迭代次数
-            # 计算 Z = A * inv(A[I, :])，用线性方程求解替代显式求逆以提高稳定性与效率。
-            Z = solve(matrix[I, :].T, matrix.T).T
-
-            # 找到 Z 中绝对值最大的元素及其位置 (i, j)。若超过容忍度则替换对应索引。
-            idx = np.unravel_index(np.argmax(np.abs(Z)), Z.shape)
-            if np.abs(Z[idx]) > tolerance:
-                I[idx[1]] = idx[0]
-            else:
-                break
-
-        return np.array(I)
-
-
-    def _update_paths(self, d, new_I, left_pivots):
-        """根据新的行索引（new_I）更新 pivot paths。
-
-        new_I 中的每一项表示展平后矩阵的行索引，通过整除和取余可以恢复上一路径的索引与当前维度的索引。
-        """
-
-        n_curr = len(self.domain[d])
-        old_paths = self.pivot_paths.copy()
-        for r_idx, flat_idx in enumerate(new_I):
-            # 计算对应的上一条路径索引与当前维度在网格中的索引。
-            prev_path_idx = flat_idx // n_curr
-            curr_dim_idx = flat_idx % n_curr
-            self.pivot_paths[r_idx, :d] = old_paths[prev_path_idx, :d]
-            self.pivot_paths[r_idx, d] = curr_dim_idx
-
-    def _build_sweep_matrix(self, dim_idx, left_pivots, right_pivots):
-        """
-        构造第 dim_idx 维度的采样矩阵
-        :param dim_idx: 当前扫描的维度索引 (0 到 N-1)
-        :param left_pivots: 左侧维度的路径集合 (r_prev, dim_idx)
-        :param right_pivots: 右侧维度的路径集合 (r_next, N - dim_idx - 1)
-        """
-        n_curr = len(self.domain[dim_idx])
-        r_prev = left_pivots.shape[0]
-        r_next = right_pivots.shape[0]
-
-        # 构造采样矩阵并逐项采样函数值。
-        matrix = np.zeros((n_curr * r_prev, r_next))
-        # 为了方便索引，预先取出当前维度的网格点。
-        current_grid = self.domain[dim_idx]
-
-        # 填充采样矩阵，逐行计算目标函数值并赋值。
-        for i in range(r_prev):
-            for j in range(n_curr):
-                row_idx = i * n_curr + j
-                for k in range(r_next):
-                    # 拼接左侧、当前、右侧的坐标为完整的 N 维坐标，然后采样函数值。
-                    full_coords = self._assemble_coords(left_pivots[i], current_grid[j], right_pivots[k])
-                    matrix[row_idx, k] = self.func(full_coords)
-
-        return matrix
-
-    def _build_sweep_matrix_vectorized(self, d, left_indices, right_indices):
-        """向量化构造采样矩阵，用批量处理替代三层嵌套循环以提高性能。"""
-        n_curr = len(self.domain[d])
-        r_prev = left_indices.shape[0]
-        r_next = right_indices.shape[0]
-
-        # 总样本数为 r_prev * n_curr * r_next。
-        total_samples = r_prev * n_curr * r_next
-
-        # 构造坐标大矩阵 (TotalSamples, N)，一次性拼凑出所有点的 N 维坐标。
-        all_coords = self._assemble_all_coords(d, left_indices, right_indices)
-
-        # 批量调用函数（这是提速的关键）。假设 func 支持 (M, N) 输入并返回长度为 M 的数组。
-        all_values = self.func(all_coords)
-
-        # 将结果重塑回 (r_prev * n_curr, r_next) 并返回。
-        return all_values.reshape(r_prev * n_curr, r_next)
-    
-    def _assemble_coords(self, left_indices, current_coord, right_indices):
-        """将左侧索引、当前坐标和右侧索引拼接为完整的 N 维坐标向量并返回。"""
-
-        left_vals = [self.domain[d][idx] for d, idx in enumerate(left_indices)]
-        # 获取右侧各维度对应的数值并拼接。
-        right_vals = [self.domain[len(left_indices) + 1 + d][idx] for d, idx in enumerate(right_indices)]
-        return np.array(left_vals + [current_coord] + right_vals)
-
-    # def _assemble_all_coords(self, d, left_idx, right_idx):
-    #     """利用广播机制一次性拼凑所有坐标（旧的示例实现，保留以供参考）。"""
-    #     r_prev = left_idx.shape[0]
-    #     n_curr = len(self.domain[d])
-    #     r_next = right_idx.shape[0]
-
-    #     # 构造最终的坐标数组容器，形状为 (r_prev, n_curr, r_next, N)。
-    #     coords_tensor = np.zeros((r_prev, n_curr, r_next, self.n_dims))
-
-    #     # 填充左侧维度（从之前的路径继承）。
-    #     for i in range(d):
-    #         vals = self.domain[i][left_idx[:, i]]
-    #         coords_tensor[:, :, :, i] = vals[:, np.newaxis, np.newaxis]
-
-    #     # 填充当前维度 d。
-    #     curr_vals = self.domain[d]
-    #     coords_tensor[:, :, :, d] = curr_vals[np.newaxis, :, np.newaxis]
-
-    #     # 填充右侧维度。
-    #     for i in range(self.n_dims - d - 1):
-    #         dim_idx = d + 1 + i
-    #         vals = self.domain[dim_idx][right_idx[:, i]]
-    #         coords_tensor[:, :, :, dim_idx] = vals[np.newaxis, np.newaxis, :]
-
-    #     # 展平为 (TotalSamples, N) 以供批量函数调用并返回。
-    #     return coords_tensor.reshape(-1, self.n_dims)
-    
-    
-    def _assemble_all_coords(self, d, left_idx, right_idx):
-        """利用广播一次性拼凑所有采样点的 N 维坐标并返回。
-
-        返回值形状为 (r_prev * n_curr * r_next, N)。"""
-        r_prev = left_idx.shape[0]
-        n_curr = len(self.domain[d])
-        r_next = right_idx.shape[0]
-        
-        # 1. 预分配大矩阵 (r_prev, n_curr, r_next, N)，用于存储所有坐标组合。
-        coords_tensor = np.zeros((r_prev, n_curr, r_next, self.n_dims))
-
-        # 2. 填充左侧维度（索引范围为 0 到 d-1）。循环次数仅为 d，开销可接受。
-        for i in range(d):
-            coords_tensor[:, :, :, i] = self.domain[i][left_idx[:, i]][:, np.newaxis, np.newaxis]
-
-        # 3. 填充当前维度 d（对 n_curr 个点广播）。
-        coords_tensor[:, :, :, d] = self.domain[d][:, np.newaxis]
-
-        # 4. 填充右侧维度（d+1 到 N-1）。同样使用广播进行填充。
-        for i in range(self.n_dims - d - 1):
-            dim_idx = d + 1 + i
-            coords_tensor[:, :, :, dim_idx] = self.domain[dim_idx][right_idx[:, i]][np.newaxis, np.newaxis, :]
-
-        # 展平为 (TotalSamples, N) 并返回。
-        return coords_tensor.reshape(-1, self.n_dims)
-    
     def _path_to_coords(self, path_indices):
-        """将一整条路径索引 [i1, i2, ..., iN] 转换为对应的物理坐标向量并返回。"""
+        """将离散索引路径转换为物理/逻辑坐标数组"""
+        # 注意：这里返回的类型取决于 self.domain 的内容类型
+        return np.array([self.domain[d][path_indices[d]] for d in range(self.n_dims)])
 
-        return np.array([self.domain[d][idx] for d, idx in enumerate(path_indices)])
+    def _get_maxvol(self, matrix, tolerance=1.05):
+        """实现 MaxVol (MCI) 逻辑"""
+        m, r = matrix.shape
+        if r == 0: return np.array([], dtype=int)
+        try:
+            # 增加 check_finite=False 略微提升速度，防止极小值报错
+            _, _, p = lu(matrix, p_indices=True, check_finite=False)
+            k = min(self.rank, m, r)
+            I = np.array(p[:k], dtype=int)
+        except Exception:
+            # 回退机制：随机选择
+            I = np.random.choice(m, min(self.rank, m), replace=False)
 
-    def get_tci_integral(self):
+        # 迭代优化 MaxVol
+        for _ in range(20):
+            try:
+                sub_matrix = matrix[I, :]
+                # 使用 pinv 处理可能的病态矩阵
+                Z = matrix @ np.linalg.pinv(sub_matrix)
+                idx = np.unravel_index(np.argmax(np.abs(Z)), Z.shape)
+                if idx[1] >= len(I): break
+                if np.abs(Z[idx]) > tolerance: I[idx[1]] = idx[0]
+                else: break
+            except: break
+        return I.flatten().astype(int)
+
+    def _build_sweep_matrix_vectorized(self, d, left, right):
         """
-        全向量化积分计算：消除维度内的点循环
+        向量化构造采样矩阵。
+        【关键修正】移除了 dtype=float 的强制转换，支持 Integer 传递给 QTTEncoder
         """
-        # 1. 选定第一条路径作为参考（Rank-1 近似积分）
-        p = self.pivot_paths[0]
-        f_max = float(self.func(self._path_to_coords(p))) # 强制转标量
+        n_curr = len(self.domain[d])
+        r_prev, r_next = left.shape[0], right.shape[0]
         
-        if abs(f_max) < 1e-15: return 0.0
+        # 1. 构建全索引张量 (Batch, n_dims)
+        coords_idx = np.zeros((r_prev, n_curr, r_next, self.n_dims), dtype=int)
+        
+        # 填充左侧路径
+        for i in range(d): 
+            coords_idx[:,:,:,i] = left[:, i][:, None, None]
+        # 填充当前维度 (遍历所有可能值)
+        coords_idx[:,:,:,d] = np.arange(n_curr, dtype=int)[None, :, None]
+        # 填充右侧路径
+        for i in range(self.n_dims - d - 1):
+            coords_idx[:,:,:,d+1+i] = right[:, i][None, None, :]
+        
+        flat_idx = coords_idx.reshape(-1, self.n_dims)
+        
+        # 2. 将索引映射回 domain 值 (核心修正点)
+        # 我们先创建一个空容器，类型跟随 domain 的第一个元素，不强制 float
+        sample_val = self.domain[0][0]
+        flat_coords = np.zeros(flat_idx.shape, dtype=type(sample_val))
+        
+        for i in range(self.n_dims):
+            flat_coords[:, i] = self.domain[i][flat_idx[:, i]]
+            
+        # 3. 调用物理函数
+        # reshape 回 (Left * Current, Right) 以符合 TCI 矩阵结构
+        return self.func(flat_coords).reshape(r_prev * n_curr, r_next)
 
-        # 2. 计算每个维度的 1D 积分贡献
-        # 相比于原来的 for 循环，我们这里一次性构造当前维度的所有坐标点
-        integral_factor = 1.0
+    def build_cores(self, anchors=None):
+        """TCI 扫频算法实现"""
+        if anchors is not None:
+            # Smart Init
+            anchor_coords = np.array([self.domain[d][anchors[:,d]] for d in range(self.n_dims)]).T
+            vals = self.func(anchor_coords)
+            best = np.argmax(np.abs(vals))
+            # 只有当锚点有显著值时才覆盖，防止全零初始化
+            if np.abs(vals[best]) > 1e-15:
+                # 广播最佳路径到所有秩，作为良好的起点
+                for r in range(self.rank): 
+                    self.pivot_paths[r, :] = anchors[best]
+
         for d in range(self.n_dims):
-            # 构造“一维扫描”所需的坐标集：固定其他维度，只变动维度 d
-            # 我们巧妙地利用 _assemble_all_coords 逻辑，此时 r_prev=1, r_next=1
-            left_idx = p[:d][np.newaxis, :]
-            right_idx = p[d+1:][np.newaxis, :]
+            l = np.zeros((1, 0), dtype=int) if d == 0 else self.pivot_paths[:, :d]
+            r = np.zeros((1, 0), dtype=int) if d == self.n_dims-1 else self.pivot_paths[:, d+1:]
             
-            # 一次性获取该轴上所有 50 个点的函数值
-            sample_matrix = self._build_sweep_matrix_vectorized(d, left_idx, right_idx)
+            sweep_matrix = self._build_sweep_matrix_vectorized(d, l, r)
+            new_I = self._get_maxvol(sweep_matrix)
             
-            # sample_matrix 形状是 (n_curr, 1)，求和得到该维度的积分贡献
-            dim_sum = np.sum(sample_matrix)
+            old = self.pivot_paths.copy()
+            for r_idx, f_idx in enumerate(new_I):
+                if r_idx >= self.rank: break
+                # 解码 f_idx:它是 (r_prev * n_curr) 的展平索引
+                # 需要还原出 prev_rank_idx 和 curr_dim_idx
+                prev_r_idx = f_idx // len(self.domain[d])
+                curr_val_idx = f_idx % len(self.domain[d])
+                
+                if d > 0: 
+                    self.pivot_paths[r_idx, :d] = old[prev_r_idx, :d]
+                self.pivot_paths[r_idx, d] = curr_val_idx
             
-            # 累乘贡献比
-            integral_factor *= (dim_sum / f_max)
-
-        # 3. 最终汇总：基准值 * 贡献比 * 总体积步长
-        dx = self.domain[0][1] - self.domain[0][0]
-        total_integral = f_max * integral_factor * (dx ** self.n_dims)
-        
-        return float(total_integral)
-    
-    def evaluate(self, point_indices):
-        """利用 pivot paths 对给定网格点进行简单的近似重构。
-
-        说明：该方法为示例性实现，仅用于验证 pivot paths 的合理性，完整 N 维重构需更复杂的实现。
-        """
-        # 1. 找到对应的核心矩阵（Core Matrix），即 pivot paths 交叉点处的函数值矩阵。
-        r = self.rank
-        core_matrix = np.zeros((r, r))
-        for i in range(r):
-            for j in range(r):
-                # 交叉点采样：组合左侧路径与右侧路径的索引。这里为简化处理，直接使用现有的 pivot_paths。
-                coords = self._assemble_coords(self.pivot_paths[i, :0], # 假设 2D
-                                              self.domain[0][self.pivot_paths[i, 0]], 
-                                              self.pivot_paths[j, 1:])
-                # 注意：实际 N 维重构更复杂，这里先以 2D 逻辑验证 MVP
-                # 简易逻辑：直接返回插值点的近似
-                pass 
-        
-        # 考虑到 N 维张量重构的复杂性，MVP 阶段最简单的验证方法是：
-        # 看看 pivot_paths 是否收敛到了高斯函数的中心附近。
-        return self.pivot_paths
-    
-    def build_cores(self):
-        """
-        任务 B: 提升算法能力。
-        这是 TCI 的核心迭代。
-        逻辑：
-        1. 固定其他维度，对当前维度进行采样，构造采样矩阵。
-        2. 调用 _get_maxvol 更新当前维度的最佳采样点（Pivots）。
-        3. 计算交叉点上的核心矩阵（Inverse Core）。
-        """
-        # --- 正向扫一遍 ---
-        for d in range(self.n_dims):
-            # 1. 准备左侧右侧的“锚点”
-            #左侧是之前维度已经选好的最优路径：取前d列
-            left_pivots = self.pivot_paths[:, :d] if d > 0 else np.zeros((self.rank, 0), dtype=int)
-            # 右侧是后续维度现有的路径：取 d+1 之后的所有列
-            right_pivots = self.pivot_paths[:, d+1:] if d < self.n_dims - 1 else np.zeros((self.rank, 0), dtype=int)
-
-            # 2. 构造采样矩阵
-            matrix = self._build_sweep_matrix(d, left_pivots, right_pivots)
-
-            # 3. 使用 MaxVol 更新当前维度的 Pivots
-            new_indices = self._get_maxvol(matrix)
-
-            # 4. 更新全局路径矩阵
-            self._update_paths(d, new_indices, left_pivots)
+            # 广播填补空缺的秩
+            if 0 < len(new_I) < self.rank:
+                for r_idx in range(len(new_I), self.rank):
+                    self.pivot_paths[r_idx, :] = self.pivot_paths[r_idx % len(new_I), :]
