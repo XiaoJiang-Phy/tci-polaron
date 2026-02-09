@@ -2,9 +2,13 @@
 QTT 积分的稳定实现
 使用简化的采样验证方法，避免病态矩阵求逆
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import numpy as np
-from qtt_utils import QTTEncoder
-from physics_models import vectorized_gaussian
+from src.qtt_utils import QTTEncoder
+from src.physics_models import vectorized_gaussian
 
 def compute_integral_monte_carlo(encoder, func, n_samples=100000):
     """

@@ -4,10 +4,14 @@ High-Rank TCI with Monte Carlo Integration
 Strategy: Use high-rank TCI to identify important regions,
 then use the Pivot information to guide importance sampling.
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import numpy as np
-from tci_core import TCIFitter
-from qtt_utils import QTTEncoder
-from physics_models import vectorized_gaussian
+from src.tci_core import TCIFitter
+from src.qtt_utils import QTTEncoder
+from src.physics_models import vectorized_gaussian
 
 
 def run_high_rank_demo():

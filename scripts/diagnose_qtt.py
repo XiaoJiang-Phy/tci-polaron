@@ -1,11 +1,14 @@
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 QTT 数值爆炸诊断脚本
 目标：逐层追踪 Pivot 值和积分收缩过程，定位爆炸源头
 """
 import numpy as np
-from tci_core import TCIFitter
-from qtt_utils import QTTEncoder
-from physics_models import vectorized_gaussian
+from src.tci_core import TCIFitter
+from src.qtt_utils import QTTEncoder
+from src.physics_models import vectorized_gaussian
 
 def diagnose_qtt():
     print("="*60)

@@ -355,8 +355,8 @@ class AdaptiveTCI:
 
 def run_aci_demo():
     """ACI 演示"""
-    from qtt_utils import QTTEncoder
-    from physics_models import vectorized_gaussian
+    from .qtt_utils import QTTEncoder
+    from .physics_models import vectorized_gaussian
     
     print("="*60)
     print("自适应交叉插值 (ACI) 演示")
