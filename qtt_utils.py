@@ -34,23 +34,52 @@ class QTTEncoder:
             res.append(val)
         return np.array(res).T
 
+    def encode(self, physical_coords):
+        """
+        将物理坐标编码为 QTT 索引 (decode 的逆过程)
+        
+        physical_coords: (M, n_vars) 物理坐标
+        返回: (M, R) QTT 索引
+        """
+        physical_coords = np.atleast_2d(physical_coords)
+        M = physical_coords.shape[0]
+        
+        # 1. 归一化到 [0, 1]
+        u = np.zeros((M, self.n_vars))
+        for i, b in enumerate(self.bounds):
+            u[:, i] = (physical_coords[:, i] - b[0]) / (b[1] - b[0])
+        
+        # 2. 逐层提取比特并融合
+        qtt_indices = np.zeros((M, self.R), dtype=int)
+        for k in range(self.R):
+            fused_val = 0
+            for v in range(self.n_vars):
+                # 提取第 k 个比特 (最高位优先)
+                bit = int(u[0, v] * (2 ** (k + 1))) % 2
+                fused_val |= (bit << (self.n_vars - 1 - v))
+            qtt_indices[:, k] = fused_val
+        
+        return qtt_indices
+
     def get_anchors(self):
-        """生成 QTT 战略锚点"""
-        # 中点锚点：第一层比特全为 1 (二进制 0.100...)，其余为 0
-        # 注意：这里返回的形状必须与 solver.domain 一致
-        # domain 长度为 R (层数)，每层取值范围 [0, d-1]
+        """
+        生成 QTT 战略锚点
         
-        # 锚点 1: 全 0 (对应物理左边界)
-        start = np.zeros(self.R, dtype=int)
+        修复说明 (2026-02-09 v2):
+        直接通过 encode() 从物理坐标计算正确的 QTT 索引。
+        """
+        # 物理坐标点 -> QTT 索引
+        physical_anchors = np.array([
+            [-3.0, -3.0, -3.0],  # 左边界
+            [0.0, 0.0, 0.0],     # 高斯峰值中心 (最重要!)
+            [3.0, 3.0, 3.0],     # 右边界
+            [1.0, 1.0, 1.0],     # 偏移探测点
+            [-1.0, -1.0, -1.0],  # 另一个探测点
+        ])
         
-        # 锚点 2: 中点 (最高位比特设为 1，其余为 0)
-        # 对于 fused dimension d=2^n，最高位实际上是 d-1 (如果 n=1)
-        # 更精确的做法是：每一层的 "0.5" 实际上只发生在第一层 (k=0)
-        # 0.5 = 2^-1. 第一层权重大。
-        mid = np.zeros(self.R, dtype=int)
+        qtt_anchors = []
+        for coord in physical_anchors:
+            qtt_idx = self.encode(coord.reshape(1, -1))
+            qtt_anchors.append(qtt_idx[0])
         
-        # 简单的中点启发式：设置所有层为中间值 (往往能捕捉到高斯峰)
-        # 或者仅设置第一层为 max_val / 2
-        mid[:] = (self.d - 1) // 2 
-        
-        return np.array([start, mid])
+        return np.array(qtt_anchors)

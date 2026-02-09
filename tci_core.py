@@ -18,30 +18,48 @@ class TCIFitter:
         return np.array([self.domain[d][path_indices[d]] for d in range(self.n_dims)])
 
     def _get_maxvol(self, matrix, tolerance=1.05):
-        """实现 MaxVol (MCI) 逻辑"""
-        m, r = matrix.shape
-        if r == 0: return np.array([], dtype=int)
+        """
+        实现 MaxVol (Maximum Volume) 行选择
+        
+        修复说明 (2026-02-09):
+        使用 QR 分解的列主元方法替代 LU，更稳定且易于控制输出长度。
+        """
+        m, n = matrix.shape
+        if n == 0: 
+            return np.array([], dtype=int)
+        
+        k = min(self.rank, m, n)  # 最多选择 k 行
+        
         try:
-            # 增加 check_finite=False 略微提升速度，防止极小值报错
-            _, _, p = lu(matrix, p_indices=True, check_finite=False)
-            k = min(self.rank, m, r)
-            I = np.array(p[:k], dtype=int)
+            # 对转置矩阵做带主元的 QR 分解
+            # matrix.T: (n, m), Q: (n, k), R: (k, m), P: (m,)
+            from scipy.linalg import qr
+            Q, R, P = qr(matrix.T, mode='economic', pivoting=True)
+            I = np.array(P[:k], dtype=int)
         except Exception:
-            # 回退机制：随机选择
-            I = np.random.choice(m, min(self.rank, m), replace=False)
-
-        # 迭代优化 MaxVol
+            # 回退：基于行范数选择
+            row_norms = np.linalg.norm(matrix, axis=1)
+            I = np.argsort(row_norms)[-k:][::-1]
+        
+        # 迭代优化 MaxVol (贪婪改进)
         for _ in range(20):
             try:
                 sub_matrix = matrix[I, :]
-                # 使用 pinv 处理可能的病态矩阵
+                if sub_matrix.shape[0] == 0:
+                    break
+                # Z[i, j] = (替换后的体积增益)
                 Z = matrix @ np.linalg.pinv(sub_matrix)
-                idx = np.unravel_index(np.argmax(np.abs(Z)), Z.shape)
-                if idx[1] >= len(I): break
-                if np.abs(Z[idx]) > tolerance: I[idx[1]] = idx[0]
-                else: break
-            except: break
-        return I.flatten().astype(int)
+                max_idx = np.unravel_index(np.argmax(np.abs(Z)), Z.shape)
+                if max_idx[1] >= len(I): 
+                    break
+                if np.abs(Z[max_idx]) > tolerance: 
+                    I[max_idx[1]] = max_idx[0]
+                else: 
+                    break
+            except:
+                break
+        
+        return I.astype(int)
 
     def _build_sweep_matrix_vectorized(self, d, left, right):
         """
@@ -77,39 +95,74 @@ class TCIFitter:
         # reshape 回 (Left * Current, Right) 以符合 TCI 矩阵结构
         return self.func(flat_coords).reshape(r_prev * n_curr, r_next)
 
-    def build_cores(self, anchors=None):
-        """TCI 扫频算法实现"""
+    def build_cores(self, anchors=None, n_sweeps=3, verbose=False):
+        """
+        TCI 双向扫频算法实现 (DMRG-like)
+        
+        修复说明 (2026-02-09):
+        单向扫频在深层 TT 结构中无法保证全局一致性。
+        双向扫频让每个站点能"看到"两端的优化结果。
+        
+        Args:
+            anchors: 战略锚点数组
+            n_sweeps: 完整扫频轮数 (前向+反向 = 1轮)
+            verbose: 是否打印收敛信息
+        """
+        # 1. 智能初始化
         if anchors is not None:
-            # Smart Init
             anchor_coords = np.array([self.domain[d][anchors[:,d]] for d in range(self.n_dims)]).T
             vals = self.func(anchor_coords)
             best = np.argmax(np.abs(vals))
-            # 只有当锚点有显著值时才覆盖，防止全零初始化
             if np.abs(vals[best]) > 1e-15:
-                # 广播最佳路径到所有秩，作为良好的起点
                 for r in range(self.rank): 
                     self.pivot_paths[r, :] = anchors[best]
+                if verbose:
+                    print(f"[Init] 最佳锚点值: {vals[best]:.6e}")
 
-        for d in range(self.n_dims):
-            l = np.zeros((1, 0), dtype=int) if d == 0 else self.pivot_paths[:, :d]
-            r = np.zeros((1, 0), dtype=int) if d == self.n_dims-1 else self.pivot_paths[:, d+1:]
+        # 2. 双向扫频
+        for sweep in range(n_sweeps):
+            pivot_change = 0
             
-            sweep_matrix = self._build_sweep_matrix_vectorized(d, l, r)
-            new_I = self._get_maxvol(sweep_matrix)
+            # 2a. 前向扫频 (d: 0 -> n_dims-1)
+            for d in range(self.n_dims):
+                old_pivots = self.pivot_paths[:, d].copy()
+                self._optimize_site(d)
+                pivot_change += np.sum(self.pivot_paths[:, d] != old_pivots)
             
-            old = self.pivot_paths.copy()
-            for r_idx, f_idx in enumerate(new_I):
-                if r_idx >= self.rank: break
-                # 解码 f_idx:它是 (r_prev * n_curr) 的展平索引
-                # 需要还原出 prev_rank_idx 和 curr_dim_idx
-                prev_r_idx = f_idx // len(self.domain[d])
-                curr_val_idx = f_idx % len(self.domain[d])
-                
-                if d > 0: 
-                    self.pivot_paths[r_idx, :d] = old[prev_r_idx, :d]
-                self.pivot_paths[r_idx, d] = curr_val_idx
+            # 2b. 反向扫频 (d: n_dims-2 -> 0)
+            for d in range(self.n_dims - 2, -1, -1):
+                old_pivots = self.pivot_paths[:, d].copy()
+                self._optimize_site(d)
+                pivot_change += np.sum(self.pivot_paths[:, d] != old_pivots)
             
-            # 广播填补空缺的秩
-            if 0 < len(new_I) < self.rank:
-                for r_idx in range(len(new_I), self.rank):
-                    self.pivot_paths[r_idx, :] = self.pivot_paths[r_idx % len(new_I), :]
+            if verbose:
+                print(f"[Sweep {sweep+1}/{n_sweeps}] Pivot 变化数: {pivot_change}")
+            
+            # 早停条件: Pivot 不再变化
+            if pivot_change == 0:
+                if verbose:
+                    print(f"[Early Stop] 在第 {sweep+1} 轮收敛")
+                break
+    
+    def _optimize_site(self, d):
+        """优化单个站点的 Pivot 选择"""
+        l = np.zeros((1, 0), dtype=int) if d == 0 else self.pivot_paths[:, :d]
+        r = np.zeros((1, 0), dtype=int) if d == self.n_dims-1 else self.pivot_paths[:, d+1:]
+        
+        sweep_matrix = self._build_sweep_matrix_vectorized(d, l, r)
+        new_I = self._get_maxvol(sweep_matrix)
+        
+        old = self.pivot_paths.copy()
+        for r_idx, f_idx in enumerate(new_I):
+            if r_idx >= self.rank: break
+            prev_r_idx = f_idx // len(self.domain[d])
+            curr_val_idx = f_idx % len(self.domain[d])
+            
+            if d > 0: 
+                self.pivot_paths[r_idx, :d] = old[prev_r_idx, :d]
+            self.pivot_paths[r_idx, d] = curr_val_idx
+        
+        # 广播填补空缺的秩
+        if 0 < len(new_I) < self.rank:
+            for r_idx in range(len(new_I), self.rank):
+                self.pivot_paths[r_idx, :] = self.pivot_paths[r_idx % len(new_I), :]
