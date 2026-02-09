@@ -1,10 +1,13 @@
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 深度诊断：为什么 Pivot 从正确的锚点 (0,0,0) 跳到 (-3,-3,0)？
 """
 import numpy as np
-from tci_core import TCIFitter
-from qtt_utils import QTTEncoder
-from physics_models import vectorized_gaussian
+from src.tci_core import TCIFitter
+from src.qtt_utils import QTTEncoder
+from src.physics_models import vectorized_gaussian
 
 def deep_diagnose():
     encoder = QTTEncoder(num_vars=3, num_bits=20, bounds=[(-3, 3)]*3)

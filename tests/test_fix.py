@@ -1,9 +1,13 @@
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import numpy as np
-from tci_core import TCIFitter
-from qtt_utils import QTTEncoder
-from tci_utils import compute_tci_integral
-from physics_models import vectorized_gaussian
+from src.tci_core import TCIFitter
+from src.qtt_utils import QTTEncoder
+from src.tci_utils import compute_tci_integral
+from src.physics_models import vectorized_gaussian
 
 def test_fixed_qtt():
     # 模拟 main.py 的设置

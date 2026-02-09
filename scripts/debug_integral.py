@@ -1,10 +1,13 @@
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 QTT 积分调试脚本
 """
 import numpy as np
-from tci_core import TCIFitter
-from qtt_utils import QTTEncoder
-from physics_models import vectorized_gaussian
+from src.tci_core import TCIFitter
+from src.qtt_utils import QTTEncoder
+from src.physics_models import vectorized_gaussian
 
 def debug_qtt_integral():
     print("="*60)

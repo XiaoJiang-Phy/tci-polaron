@@ -177,8 +177,8 @@ class TTCoreTCI:
 
 def run_ttcore_demo():
     """TT-Core 演示"""
-    from qtt_utils import QTTEncoder
-    from physics_models import vectorized_gaussian
+    from .qtt_utils import QTTEncoder
+    from .physics_models import vectorized_gaussian
     
     print("="*60)
     print("TT-Core TCI 积分演示")

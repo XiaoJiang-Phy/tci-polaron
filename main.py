@@ -1,8 +1,8 @@
 import numpy as np
-from tci_core import TCIFitter
-from qtt_utils import QTTEncoder
-from tci_utils import compute_tci_integral
-from physics_models import vectorized_gaussian
+from src.tci_core import TCIFitter
+from src.qtt_utils import QTTEncoder
+from src.tci_utils import compute_tci_integral
+from src.physics_models import vectorized_gaussian
 
 THEORETICAL = 5.56832
 
