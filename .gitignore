@@ -181,3 +181,15 @@ cython_debug/
 .cursorindexingignore
 .DS_Store
 .antigravity/
+
+# Data and calculation output files
+*.h5
+*.hdf5
+*.npy
+*.npz
+*.dat
+*.data
+*.mat
+*.pkl
+*.pickle
+*.out
