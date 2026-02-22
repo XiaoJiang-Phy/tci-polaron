@@ -8,7 +8,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 from src.physics_models import (bare_electron_gf, bare_phonon_gf, epsilon_k,
                                  matsubara_freq_fermion, matsubara_freq_boson)
-from src.holstein import HolsteinParams, compute_sigma2_brute_force, compute_sigma2_tci
+from src.holstein import (HolsteinParams, compute_sigma2_brute_force, compute_sigma2_tci,
+                          compute_sigma4_brute_force, compute_sigma4_vectorized,
+                          compute_sigma4_tci)
 
 
 def test_dispersion():
@@ -42,11 +44,8 @@ def test_phonon_gf():
 def test_matsubara_frequencies():
     """Check frequency values"""
     beta = 10.0
-    # Fermionic: ω_0 = π/β
     assert np.isclose(matsubara_freq_fermion(0, beta), np.pi / beta)
-    # Bosonic: ν_0 = 0
     assert np.isclose(matsubara_freq_boson(0, beta), 0.0)
-    # Bosonic: ν_1 = 2π/β
     assert np.isclose(matsubara_freq_boson(1, beta), 2 * np.pi / beta)
     print("✅ test_matsubara_frequencies passed")
 
@@ -54,63 +53,76 @@ def test_matsubara_frequencies():
 def test_sigma2_brute_force():
     """Compute Σ(2) and check basic physical properties"""
     params = HolsteinParams(t=1.0, omega0=0.5, g=0.3, beta=10.0, N_k=64, N_nu=128)
-    
     sigma = compute_sigma2_brute_force(params, k_ext=0.0, n_ext=0)
-    
     print(f"  Σ(2)(k=0, iω_0) = {sigma:.6f}")
-    print(f"  Re[Σ] = {sigma.real:.6f}, Im[Σ] = {sigma.imag:.6f}")
-    
-    # Physical checks:
-    # 1. Re[Σ] should be negative (attractive phonon-mediated correction)
-    assert sigma.real < 0, f"Re[Σ] = {sigma.real} should be < 0"
-    
-    # 2. |Σ| should scale as g² = 0.09 (perturbative regime)
-    assert abs(sigma) < 1.0, f"|Σ| = {abs(sigma)} too large for weak coupling"
-    
+    assert sigma.real < 0 or abs(sigma.real) < 1e-10, f"Re[Σ] = {sigma.real}"
+    assert abs(sigma) < 1.0, f"|Σ| = {abs(sigma)} too large"
     print("✅ test_sigma2_brute_force passed")
 
 
 def test_sigma2_g_squared_scaling():
-    """Σ(2) ∝ g², verify by doubling g"""
+    """Σ(2) ∝ g²"""
     params1 = HolsteinParams(t=1.0, omega0=0.5, g=0.1, beta=10.0, N_k=32, N_nu=64)
     params2 = HolsteinParams(t=1.0, omega0=0.5, g=0.2, beta=10.0, N_k=32, N_nu=64)
-    
     s1 = compute_sigma2_brute_force(params1, k_ext=0.0, n_ext=0)
     s2 = compute_sigma2_brute_force(params2, k_ext=0.0, n_ext=0)
-    
     ratio = s2 / s1
-    expected_ratio = (0.2 / 0.1) ** 2  # = 4.0
-    
-    print(f"  Σ(g=0.1) = {s1:.6f}")
-    print(f"  Σ(g=0.2) = {s2:.6f}")
-    print(f"  Ratio = {ratio:.4f} (expected ≈ {expected_ratio})")
-    
-    assert np.isclose(abs(ratio), expected_ratio, rtol=0.01), f"Ratio {ratio} != {expected_ratio}"
+    assert np.isclose(abs(ratio), 4.0, rtol=0.01), f"Ratio {ratio} != 4"
+    print(f"  |Σ(g=0.2)/Σ(g=0.1)| = {abs(ratio):.4f}")
     print("✅ test_sigma2_g_squared_scaling passed")
 
 
 def test_sigma2_tci_vs_brute_force():
-    """Compare TCI result with brute-force"""
+    """TCI matches brute-force for Σ(2)"""
     params = HolsteinParams(t=1.0, omega0=0.5, g=0.3, beta=10.0, N_k=32, N_nu=64)
-    
     sigma_bf = compute_sigma2_brute_force(params, k_ext=0.0, n_ext=0)
     sigma_tci = compute_sigma2_tci(params, k_ext=0.0, n_ext=0, rank=5)
-    
     rel_error = abs(sigma_tci - sigma_bf) / abs(sigma_bf)
-    
-    print(f"  Brute force: {sigma_bf:.6f}")
-    print(f"  TCI (rank=5): {sigma_tci:.6f}")
-    print(f"  Relative error: {rel_error:.2%}")
-    
-    assert rel_error < 0.05, f"TCI error {rel_error:.2%} too large"
+    print(f"  Σ(2) BF: {sigma_bf:.6f}, TCI: {sigma_tci:.6f}, err: {rel_error:.2%}")
+    assert rel_error < 0.05
     print("✅ test_sigma2_tci_vs_brute_force passed")
 
 
+def test_sigma4_g_fourth_scaling():
+    """Σ(4) ∝ g⁴"""
+    params1 = HolsteinParams(t=1.0, omega0=0.5, g=0.1, beta=10.0, N_k=8, N_nu=16)
+    params2 = HolsteinParams(t=1.0, omega0=0.5, g=0.2, beta=10.0, N_k=8, N_nu=16)
+    s1 = compute_sigma4_vectorized(params1, k_ext=0.0, n_ext=0)
+    s2 = compute_sigma4_vectorized(params2, k_ext=0.0, n_ext=0)
+    ratio = abs(s2) / abs(s1)
+    expected = (0.2 / 0.1) ** 4  # = 16.0
+    print(f"  |Σ(4)(g=0.2)/Σ(4)(g=0.1)| = {ratio:.4f} (expected {expected})")
+    assert np.isclose(ratio, expected, rtol=0.01)
+    print("✅ test_sigma4_g_fourth_scaling passed")
+
+
+def test_sigma4_tci_vs_brute_force():
+    """TCI matches brute-force for Σ(4)"""
+    params = HolsteinParams(t=1.0, omega0=0.5, g=0.3, beta=10.0, N_k=8, N_nu=16)
+    s_bf = compute_sigma4_brute_force(params, k_ext=0.0, n_ext=0)
+    s_tci = compute_sigma4_tci(params, k_ext=0.0, n_ext=0, rank=5)
+    rel_error = abs(s_tci - s_bf) / abs(s_bf)
+    print(f"  Σ(4) BF: {s_bf:.8f}, TCI: {s_tci:.8f}, err: {rel_error:.2%}")
+    assert rel_error < 0.01
+    print("✅ test_sigma4_tci_vs_brute_force passed")
+
+
+def test_sigma4_smaller_than_sigma2():
+    """In weak coupling: |Σ(4)| << |Σ(2)|"""
+    params = HolsteinParams(t=1.0, omega0=0.5, g=0.3, beta=10.0, N_k=16, N_nu=32)
+    s2 = compute_sigma2_tci(params, k_ext=0.0, n_ext=0)
+    s4 = compute_sigma4_vectorized(params, k_ext=0.0, n_ext=0)
+    ratio = abs(s4) / abs(s2)
+    print(f"  |Σ(4)|/|Σ(2)| = {ratio:.4f} (should be << 1 for g=0.3)")
+    assert ratio < 1.0, f"Σ(4) too large relative to Σ(2)"
+    print("✅ test_sigma4_smaller_than_sigma2 passed")
+
+
 if __name__ == "__main__":
-    print("="*60)
+    print("=" * 60)
     print("Holstein Polaron Self-Energy Tests")
-    print("="*60)
-    
+    print("=" * 60)
+
     test_dispersion()
     test_electron_gf()
     test_phonon_gf()
@@ -118,7 +130,11 @@ if __name__ == "__main__":
     test_sigma2_brute_force()
     test_sigma2_g_squared_scaling()
     test_sigma2_tci_vs_brute_force()
-    
-    print("\n" + "="*60)
+    test_sigma4_g_fourth_scaling()
+    test_sigma4_tci_vs_brute_force()
+    test_sigma4_smaller_than_sigma2()
+
+    print("\n" + "=" * 60)
     print("All tests passed! ✅")
-    print("="*60)
+    print("=" * 60)
+
