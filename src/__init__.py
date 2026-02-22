@@ -15,7 +15,9 @@ from .physics_models import (vectorized_gaussian, bare_electron_gf,
                               bare_phonon_gf, epsilon_k,
                               matsubara_freq_fermion, matsubara_freq_boson)
 from .aci_core import AdaptiveTCI
-from .holstein import HolsteinParams, compute_sigma2_brute_force, compute_sigma2_tci
+from .holstein import (HolsteinParams, compute_sigma2_brute_force, compute_sigma2_tci,
+                        compute_sigma4_brute_force, compute_sigma4_vectorized,
+                        compute_sigma4_tci)
 
 __all__ = [
     'TCIFitter',
@@ -27,5 +29,9 @@ __all__ = [
     'HolsteinParams',
     'compute_sigma2_brute_force',
     'compute_sigma2_tci',
+    'compute_sigma4_brute_force',
+    'compute_sigma4_vectorized',
+    'compute_sigma4_tci',
 ]
+
 

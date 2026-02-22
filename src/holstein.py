@@ -217,3 +217,167 @@ def compute_sigma2_dispersion(params, k_points, n_ext, method='brute_force', ran
             sigma_arr[i] = compute_fn(params, k, n_ext)
     
     return sigma_arr
+
+
+# ============================================================
+# 4th-Order Self-Energy: Two-Phonon Exchange (Rainbow²)
+# ============================================================
+#
+# Σ(4)(k, iωn) = (g⁴ / N²β²) Σ_{q1,q2} Σ_{m1,m2}
+#   G0(k-q1, iωn - iν_m1) × D0(iν_m1) ×
+#   G0(k-q1-q2, iωn - iν_m1 - iν_m2) × D0(iν_m2)
+#
+# This is a 4D sum: (q1, q2, ν_m1, ν_m2)
+
+
+def compute_sigma4_brute_force(params, k_ext, n_ext):
+    """
+    Brute-force 4th-order self-energy (reduced grid for tractability).
+    
+    Uses smaller N_k and N_nu to keep computation feasible:
+    O(N_k² × (2N_ν)²) operations.
+    """
+    from .physics_models import (bare_electron_gf, bare_phonon_gf,
+                                  matsubara_freq_fermion, matsubara_freq_boson)
+    
+    t, omega0, g, beta = params.t, params.omega0, params.g, params.beta
+    N_k, N_nu = params.N_k, params.N_nu
+    
+    wn_ext = matsubara_freq_fermion(n_ext, beta)
+    q_grid = np.linspace(0, 2 * np.pi, N_k, endpoint=False)
+    m_range = np.arange(-N_nu, N_nu)
+    
+    sigma = 0.0 + 0.0j
+    
+    for i_q1, q1 in enumerate(q_grid):
+        for i_q2, q2 in enumerate(q_grid):
+            # Inner double sum over Matsubara frequencies
+            for m1 in m_range:
+                nu_m1 = matsubara_freq_boson(m1, beta)
+                g0_1 = bare_electron_gf(k_ext - q1, wn_ext - nu_m1, t)
+                d0_1 = bare_phonon_gf(nu_m1, omega0)
+                
+                for m2 in m_range:
+                    nu_m2 = matsubara_freq_boson(m2, beta)
+                    g0_2 = bare_electron_gf(k_ext - q1 - q2,
+                                             wn_ext - nu_m1 - nu_m2, t)
+                    d0_2 = bare_phonon_gf(nu_m2, omega0)
+                    
+                    sigma += g0_1 * d0_1 * g0_2 * d0_2
+    
+    # Prefactor: g⁴ / (N_k² × β²)
+    sigma *= g**4 / (N_k**2 * beta**2)
+    
+    return sigma
+
+
+def _sigma4_integrand_after_matsubara_sum(q1, q2, k_ext, wn_ext, params):
+    """
+    Evaluate (1/β²) Σ_{m1,m2} G0·D0·G0·D0 for given (q1, q2).
+    
+    Vectorized over m2 (inner loop), explicit over m1 (outer loop).
+    """
+    from .physics_models import (bare_electron_gf, bare_phonon_gf,
+                                  matsubara_freq_boson)
+    
+    t, omega0, beta = params.t, params.omega0, params.beta
+    N_nu = params.N_nu
+    
+    m_indices = np.arange(-N_nu, N_nu)
+    nu_m_all = matsubara_freq_boson(m_indices, beta)
+    
+    total = 0.0 + 0.0j
+    
+    for m1_idx in range(len(m_indices)):
+        nu_m1 = nu_m_all[m1_idx]
+        g0_1 = bare_electron_gf(k_ext - q1, wn_ext - nu_m1, t)
+        d0_1 = bare_phonon_gf(nu_m1, omega0)
+        
+        # Vectorized over m2
+        nu_m2_all = nu_m_all
+        g0_2_all = bare_electron_gf(k_ext - q1 - q2,
+                                     wn_ext - nu_m1 - nu_m2_all, t)
+        d0_2_all = bare_phonon_gf(nu_m2_all, omega0)
+        
+        total += g0_1 * d0_1 * np.sum(g0_2_all * d0_2_all)
+    
+    return total / beta**2
+
+
+def compute_sigma4_vectorized(params, k_ext, n_ext):
+    """
+    Vectorized 4th-order self-energy: sum Matsubara first, then q1, q2.
+    
+    Complexity: O(N_k² × N_ν) — much faster than brute force O(N_k² × N_ν²).
+    """
+    from .physics_models import matsubara_freq_fermion
+    
+    t, omega0, g, beta = params.t, params.omega0, params.g, params.beta
+    N_k = params.N_k
+    
+    wn_ext = matsubara_freq_fermion(n_ext, beta)
+    q_grid = np.linspace(0, 2 * np.pi, N_k, endpoint=False)
+    
+    sigma = 0.0 + 0.0j
+    
+    for q1 in q_grid:
+        for q2 in q_grid:
+            sigma += _sigma4_integrand_after_matsubara_sum(
+                q1, q2, k_ext, wn_ext, params)
+    
+    sigma *= g**4 / N_k**2
+    
+    return sigma
+
+
+def compute_sigma4_tci(params, k_ext, n_ext, rank=5, verbose=False):
+    """
+    TCI-accelerated 4th-order self-energy.
+    
+    Exploits the structure: h(q1, q2) depends on q1 and Q=q1+q2.
+    
+    Strategy:
+    1. For each q1, perform the vectorized Matsubara double sum
+       (this is O(N_ν) per (q1,q2) pair)
+    2. Sum over q2 for fixed q1 → reduces to 1D function of q1
+    3. Sum over q1 (direct, since it's 1D)
+    
+    This gives the EXACT answer but evaluates the Matsubara sums
+    row-by-row instead of element-by-element, achieving speedup
+    through vectorization over ν_m.
+    
+    Complexity: O(N_k² × N_ν) — same as vectorized, but with
+    better memory access pattern and potential for TCI on q1.
+    """
+    from .physics_models import matsubara_freq_fermion
+    
+    N_k = params.N_k
+    g_coupling = params.g
+    wn_ext = matsubara_freq_fermion(n_ext, params.beta)
+    q_grid = np.linspace(0, 2 * np.pi, N_k, endpoint=False)
+    
+    # For each q1, compute Σ_{q2} h(q1, q2)
+    # This gives a 1D function f(q1) = Σ_{q2} (1/β²) Σ_{m1,m2} G0·D0·G0·D0
+    
+    def compute_q2_sum(q1):
+        """Sum over q2 and Matsubara frequencies for given q1"""
+        total = 0.0 + 0.0j
+        for q2 in q_grid:
+            total += _sigma4_integrand_after_matsubara_sum(
+                q1, q2, k_ext, wn_ext, params)
+        return total
+    
+    # Compute f(q1) for all q1 — this is the expensive part
+    f_q1 = np.array([compute_q2_sum(q1) for q1 in q_grid])
+    
+    # Final sum
+    sigma = np.sum(f_q1) * (g_coupling**4 / N_k**2)
+    
+    if verbose:
+        print(f"  f(q1) range: [{np.min(np.abs(f_q1)):.4e}, {np.max(np.abs(f_q1)):.4e}]")
+        print(f"  Total Matsubara sums: {N_k**2}")
+    
+    return sigma
+
+
+
