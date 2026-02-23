@@ -178,7 +178,20 @@ print(f"Σ(2) TCI:         {sigma_tci:.8f}")
 - [x] **Phase 2:** Holstein polaron 2nd-order self-energy (Feynman diagrams) ✅
 - [x] **Phase 3:** 4th-order self-energy, benchmarking ✅
 - [x] **Phase 4:** Direct 4D TCI on full integrand — CUR-based TT integration ✅
-- [ ] **Phase 5:** Higher-order expansions & comparison with DiagMC
+
+### Phase 5: 精度与表示优化 (近期)
+
+- [ ] **5a: 虚时间 τ 表示** — 将 Matsubara 频率 $G_0(i\omega_n)$ 替换为虚时间 $G_0(\tau) = -e^{-\varepsilon\tau} n_F(\varepsilon)$，预期降低 TT 秩需求（光滑函数 vs 有理函数极点）
+- [ ] **5b: 坐标旋转消除对角耦合** — $(q_1, q_2) \to (Q, q_-)$ 使动量守恒 $q_1+q_2=Q$ 变为直积结构，改善 CUR 收敛
+- [ ] **5c: 6阶自能 Σ(6)** — 6D 积分，真正展示 TCI 相对于暴力求和的复杂度优势 $O(r \cdot N^3)$ vs $O(N^6)$
+- [ ] **5d: 与 TCI.jl 对比** — Julia 的 TensorCrossInterpolation.jl 提供显式 TT-core，可做标准 TT 积分，验证 CUR 方案的近似瓶颈
+
+### Phase 6: 物理扩展 (中期)
+
+- [ ] **6a: 色散声子** — $D_0(q, \nu)$ 加动量依赖 $\omega_q = \omega_0 \sqrt{1 + \alpha \cos q}$，使 $\Sigma(k)$ 有非平凡色散重整化
+- [ ] **6b: DiagMC 对比** — 实现 Diagrammatic Monte Carlo，与 TCI 在精度/速度/scaling 上直接对比
+- [ ] **6c: 2D Holstein** — 二维模型，动量积分 1D → 2D，自能维度 4D → 6D
+
 
 ## 📖 Background
 
