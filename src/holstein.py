@@ -735,24 +735,27 @@ def compute_sigma4_tau_brute_force(params, k_ext, n_ext, N_tau=256):
 def compute_sigma4_tau_tci(params, k_ext, n_ext, N_tau=64,
                            rank=10, n_sweeps=4, verbose=False):
     """
-    4th-order self-energy via imaginary-time TCI.
+    4th-order self-energy via imaginary-time with tail subtraction.
 
-    Uses the hybrid τ/Matsubara approach (same as brute force):
-    The integrand for TCI is the 2D function f(q₁, q₂):
-        f(q₁, q₂) = (1/β) Σ_{m₁} G₀(k-q₁, iωₙ-iνₘ₁) D₀(iνₘ₁) h(k-q₁-q₂, iωₙ-iνₘ₁)
+    Computes h(p, iω') = ∫₀^β G₀(p,τ) D₀(τ) e^{iω'τ} dτ using
+    first-moment tail subtraction for O(1/N_τ²) convergence:
 
-    where h(p, iω') = Δτ Σⱼ G₀(p, τⱼ) D₀(τⱼ) e^{iω'τⱼ} computes the
-    inner ν_m₂ Matsubara sum via τ-space Fourier integration.
+        G₀(p,τ) = G₀_reg(p,τ) + G₀_tail(τ)
+        G₀_reg(p,τ) = G₀(p,τ) + 1/2    (smooth, truly anti-periodic)
+        G₀_tail(τ)  = -1/2               (constant, FT = 1/(iωₙ))
 
-    TCI compresses the 2D (q₁, q₂) sum.
+    Then h = h_reg + h_tail where:
+        h_reg = Δτ Σⱼ [G₀(p,τⱼ)+1/2] D₀(τⱼ) e^{iω'τⱼ}  (O(1/N_τ²))
+        h_tail = (-1/2) · D₀_FT(iω')                       (analytical)
+        D₀_FT(iω') = -2iω' coth(ω₀β/2) / (ω₀² + ω'²)
 
     Args:
         params: HolsteinParams
         k_ext: external momentum
         n_ext: external fermionic Matsubara index
         N_tau: number of τ grid points for Fourier integration
-        rank: TCI rank
-        n_sweeps: number of TCI sweeps
+        rank: TCI rank (unused, kept for API compatibility)
+        n_sweeps: TCI sweeps (unused)
         verbose: print progress
 
     Returns:
@@ -761,7 +764,6 @@ def compute_sigma4_tau_tci(params, k_ext, n_ext, N_tau=64,
     from .physics_models import (bare_electron_gf, bare_phonon_gf,
                                   bare_electron_gf_tau, bare_phonon_gf_tau,
                                   matsubara_freq_fermion, matsubara_freq_boson)
-    from .tci_core import TCIFitter
 
     t_hop, omega0, g_coupling, beta = params.t, params.omega0, params.g, params.beta
     N_k, N_nu = params.N_k, params.N_nu
@@ -777,29 +779,37 @@ def compute_sigma4_tau_tci(params, k_ext, n_ext, N_tau=64,
     wn_prime_all = wn_ext - nu_m1_all  # fermionic frequencies for h
     d0_mat = bare_phonon_gf(nu_m1_all, omega0)  # (2*N_nu,)
 
-    # τ-space quantities for h computation
+    # τ-space quantities
     d0_tau = bare_phonon_gf_tau(tau_grid, beta, omega0)  # (N_tau,)
+    phase_mat = np.exp(1j * wn_prime_all[:, None] * tau_grid[None, :])  # (2*N_nu, N_tau)
 
-    # Phase matrix for h: e^{iω'_m τ_j}, shape (2*N_nu, N_tau)
-    phase_mat = np.exp(1j * wn_prime_all[:, None] * tau_grid[None, :])
+    # Analytical tail: D₀_FT at fermionic frequencies
+    # D₀_FT(iω') = -2iω' coth(ω₀β/2) / (ω₀² + ω'²)
+    coth_val = np.cosh(omega0 * beta / 2) / np.sinh(omega0 * beta / 2)
+    d0_ft_fermionic = -2j * wn_prime_all * coth_val / (omega0**2 + wn_prime_all**2)
 
     def _compute_h(p):
-        """Compute h(p, iω') for all needed frequencies. Returns (2*N_nu,)."""
-        g0_t = bare_electron_gf_tau(p, tau_grid, beta, t_hop)
-        f_tau = g0_t * d0_tau
-        return dtau * (phase_mat @ f_tau)
+        """
+        Compute h(p, iω') with first-moment tail subtraction.
+        h = h_reg + h_tail
+        h_reg = Δτ Σⱼ [G₀(p,τⱼ)+1/2] D₀(τⱼ) e^{iω'τⱼ}
+        h_tail = (-1/2) · D₀_FT(iω')
+        Returns (2*N_nu,).
+        """
+        g0_t = bare_electron_gf_tau(p, tau_grid, beta, t_hop)  # (N_tau,)
+        g0_reg = g0_t + 0.5  # subtract tail: G₀_reg = G₀ + 1/2
+        f_reg = g0_reg * d0_tau  # smooth anti-periodic product
+        h_reg = dtau * (phase_mat @ f_reg)  # O(1/N_tau²) convergence
+        h_tail = (-0.5) * d0_ft_fermionic   # exact analytical tail
+        return h_reg + h_tail
 
-    # Precompute G₀(k-q₁, iω') for all q₁ on grid: shape (N_k, 2*N_nu)
+    # Precompute G₀(k-q₁, iω') for all q₁ on grid
     g0_p1_mat = np.zeros((N_k, len(m1_range)), dtype=complex)
     for iq1 in range(N_k):
         g0_p1_mat[iq1, :] = bare_electron_gf(k_ext - q_grid[iq1],
                                                wn_prime_all, t_hop)
 
-    # Evaluate the 2D integrand f(q₁, q₂) over the full grid
-    # For small N_k (e.g. 8), the 2D grid is only N_k² = 64 points,
-    # making TCI overhead unnecessary. The τ-space advantage is in
-    # reducing dimensionality (4D Matsubara → 2D + τ-space h), not
-    # in compressing this small 2D sum.
+    # Direct 2D summation over (q₁, q₂)
     sigma = 0.0 + 0.0j
 
     for iq1 in range(N_k):
@@ -809,14 +819,13 @@ def compute_sigma4_tau_tci(params, k_ext, n_ext, N_tau=64,
             p2 = k_ext - q_grid[iq1] - q_grid[iq2]
             h_p2 = _compute_h(p2)
 
-            # (1/β) Σ_{m₁} G₀(p₁, ω') D₀(νₘ₁) h(p₂, ω')
             sigma += np.sum(g0_1 * d0_mat * h_p2) / beta
 
     prefactor = g_coupling**4 / N_k**2
     sigma *= prefactor
 
     if verbose:
-        print(f"  τ-TCI: evaluated {N_k**2} points on 2D grid")
+        print(f"  τ-TCI (tail-sub): N_τ={N_tau}, {N_k**2} q-points")
         print(f"  Σ(4) τ = {sigma:.8f}")
 
     return sigma

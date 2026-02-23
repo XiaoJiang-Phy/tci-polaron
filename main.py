@@ -117,14 +117,14 @@ def run_tau_demo():
     err_bf = abs(s_bf - sigma_mat) / abs(sigma_mat) * 100
     print(f"  Σ(4) τ-BF (精确):       {s_bf:.8f}  ({t_bf:.2f}s, 误差 {err_bf:.4f}%)")
 
-    # τ-TCI convergence with N_tau
-    print("\n  τ-TCI (direct 2D sum, τ-space h) 收敛:")
-    for N_tau in [128, 256, 512]:
+    # τ-TCI convergence with N_tau (with tail subtraction)
+    print("\n  τ-TCI (tail subtraction, O(1/N²_τ)) 收敛:")
+    for N_tau in [32, 64, 128, 256]:
         t0 = time.time()
         s_tci = compute_sigma4_tau_tci(params, k_ext, n_ext, N_tau=N_tau)
         dt = time.time() - t0
         err = abs(s_tci - sigma_mat) / abs(sigma_mat) * 100
-        print(f"    N_τ={N_tau:4d}: {s_tci:.8f}  ({dt:.2f}s, 误差 {err:.2f}%)")
+        print(f"    N_τ={N_tau:4d}: {s_tci:.8f}  ({dt:.2f}s, 误差 {err:.4f}%)")
 
 
 if __name__ == "__main__":
