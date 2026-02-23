@@ -63,7 +63,7 @@ tci-polaron/
 │   ├── benchmark_sigma4.py   # Σ(4) direct-4D-TCI benchmarks
 │   └── high_rank_test.py     # High-rank TCI experiments
 ├── docs/                      # Documentation
-│   └── phase4_physics_notes.md  # Physics issues encountered in Phase 4
+│   └── DECISION_LOG.md       # Physics decision log & technical issues
 └── environment.yml            # Conda environment
 ```
 
