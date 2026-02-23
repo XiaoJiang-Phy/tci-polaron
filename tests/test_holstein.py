@@ -222,14 +222,14 @@ def test_sigma4_tau_tci_accuracy():
     params = HolsteinParams(t=1.0, omega0=0.5, g=0.3, beta=10.0, N_k=8, N_nu=16)
 
     s_bf = compute_sigma4_tau_brute_force(params, k_ext=0.0, n_ext=0)
-    # TCI uses τ-space h, so has O(1/N_tau) discretization error on top
-    s_tci = compute_sigma4_tau_tci(params, k_ext=0.0, n_ext=0, N_tau=256, rank=5)
+    # TCI uses τ-space h with tail subtraction, O(1/N_tau²) convergence
+    s_tci = compute_sigma4_tau_tci(params, k_ext=0.0, n_ext=0, N_tau=128, rank=5)
 
     rel_error = abs(s_tci - s_bf) / abs(s_bf)
     print(f"  Σ(4) τ-BF:  {s_bf:.8f}")
     print(f"  Σ(4) τ-TCI: {s_tci:.8f}")
     print(f"  Relative error: {rel_error:.2%}")
-    assert rel_error < 0.05, f"τ-TCI error {rel_error:.2%} too large"
+    assert rel_error < 0.001, f"τ-TCI error {rel_error:.2%} too large"
     print("✅ test_sigma4_tau_tci_accuracy passed")
 
 
