@@ -5,7 +5,8 @@ from src.qtt_utils import QTTEncoder
 from src.tci_utils import compute_tci_integral
 from src.physics_models import vectorized_gaussian
 from src.holstein import (HolsteinParams, compute_sigma2_brute_force, compute_sigma2_tci,
-                          compute_sigma4_vectorized, compute_sigma4_direct_tci)
+                          compute_sigma4_vectorized, compute_sigma4_direct_tci,
+                          compute_sigma4_tau_brute_force, compute_sigma4_tau_tci)
 
 THEORETICAL = 5.56832
 
@@ -95,7 +96,39 @@ def run_sigma4_direct_tci_demo():
         print(f"  Σ(4) TCI: {sigma_tci:.8f}  ({t_tci:.2f}s)")
         print(f"  相对误差: {rel_err:.2f}%")
 
+def run_tau_demo():
+    print("\n--- 模式 6: Σ(4) 虚时间 τ 表示 ---")
+    params = HolsteinParams(t=1.0, omega0=0.5, g=0.3, beta=10.0, N_k=8, N_nu=16)
+    print(f"参数: t={params.t}, ω₀={params.omega0}, g={params.g}, β={params.beta}")
+    print(f"网格: N_k={params.N_k}, N_ν={params.N_nu}")
+
+    k_ext, n_ext = 0.0, 0
+
+    # Matsubara reference
+    t0 = time.time()
+    sigma_mat = compute_sigma4_vectorized(params, k_ext, n_ext)
+    t_mat = time.time() - t0
+    print(f"\n  Σ(4) Matsubara 参考:     {sigma_mat:.8f}  ({t_mat:.2f}s)")
+
+    # τ-BF (now exact, uses Matsubara h)
+    t0 = time.time()
+    s_bf = compute_sigma4_tau_brute_force(params, k_ext, n_ext)
+    t_bf = time.time() - t0
+    err_bf = abs(s_bf - sigma_mat) / abs(sigma_mat) * 100
+    print(f"  Σ(4) τ-BF (精确):       {s_bf:.8f}  ({t_bf:.2f}s, 误差 {err_bf:.4f}%)")
+
+    # τ-TCI convergence with N_tau
+    print("\n  τ-TCI (direct 2D sum, τ-space h) 收敛:")
+    for N_tau in [128, 256, 512]:
+        t0 = time.time()
+        s_tci = compute_sigma4_tau_tci(params, k_ext, n_ext, N_tau=N_tau)
+        dt = time.time() - t0
+        err = abs(s_tci - sigma_mat) / abs(sigma_mat) * 100
+        print(f"    N_τ={N_tau:4d}: {s_tci:.8f}  ({dt:.2f}s, 误差 {err:.2f}%)")
+
+
 if __name__ == "__main__":
     run_normal_demo()
     run_holstein_demo()
     run_sigma4_direct_tci_demo()
+    run_tau_demo()

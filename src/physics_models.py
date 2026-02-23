@@ -66,3 +66,43 @@ def matsubara_freq_fermion(n, beta):
 def matsubara_freq_boson(m, beta):
     """Bosonic Matsubara frequency: ν_m = 2mπ/β"""
     return 2 * m * np.pi / beta
+
+
+# ============================================================
+# Imaginary-Time Propagators
+# ============================================================
+
+def bare_electron_gf_tau(k, tau, beta, t=1.0):
+    """
+    Bare electron Green's function in imaginary time:
+        G₀(k, τ) = -exp(-εₖ τ) / (1 + exp(-β εₖ))
+
+    For τ ∈ [0, β), this is a smooth exponential decay.
+    Much lower TT rank than the Matsubara frequency version.
+
+    Args:
+        k: momentum (scalar or array)
+        tau: imaginary time, τ ∈ [0, β)
+        beta: inverse temperature
+        t: hopping parameter
+    """
+    ek = epsilon_k(k, t)
+    # Use numerically stable form: exp(-ek*tau) / (1 + exp(-beta*ek))
+    # For large |ek|, use: -exp(-ek*tau) * fermi(ek)
+    return -np.exp(-ek * tau) / (1.0 + np.exp(-beta * ek))
+
+
+def bare_phonon_gf_tau(tau, beta, omega0):
+    """
+    Bare phonon Green's function in imaginary time (dispersionless):
+        D₀(τ) = -cosh[ω₀(β/2 - τ)] / sinh(ω₀ β/2)
+
+    For τ ∈ [0, β), smooth cosh envelope.
+    Fourier pair: D₀(iνm) = ∫₀^β dτ e^{iνmτ} D₀(τ) = -2ω₀/(νm² + ω₀²)
+
+    Args:
+        tau: imaginary time, τ ∈ [0, β)
+        beta: inverse temperature
+        omega0: phonon frequency
+    """
+    return -np.cosh(omega0 * (beta / 2.0 - tau)) / np.sinh(omega0 * beta / 2.0)

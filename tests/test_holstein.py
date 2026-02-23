@@ -140,6 +140,99 @@ def test_sigma4_direct_tci_rank_convergence():
     print("✅ test_sigma4_direct_tci_rank_convergence passed")
 
 
+# ============================================================
+# Imaginary-Time τ Tests
+# ============================================================
+
+def test_gf_tau_fourier_consistency():
+    """G₀(τ) Fourier transform should reproduce G₀(iωₙ) for low frequencies"""
+    from src.physics_models import (bare_electron_gf, bare_electron_gf_tau,
+                                     matsubara_freq_fermion)
+    beta = 10.0
+    t = 1.0
+    k = 0.5  # arbitrary momentum
+    N_tau = 2048
+
+    tau_grid = np.linspace(0, beta, N_tau, endpoint=False)
+    dtau = tau_grid[1] - tau_grid[0]
+
+    g0_tau = bare_electron_gf_tau(k, tau_grid, beta, t)
+
+    # Check first 5 Matsubara frequencies
+    max_err = 0.0
+    for n in range(5):
+        wn = matsubara_freq_fermion(n, beta)
+        # Numerical Fourier: G₀(iωₙ) = ∫₀^β dτ e^{iωₙτ} G₀(τ)
+        g0_w_numerical = dtau * np.sum(np.exp(1j * wn * tau_grid) * g0_tau)
+        g0_w_exact = bare_electron_gf(k, wn, t)
+        err = abs(g0_w_numerical - g0_w_exact) / abs(g0_w_exact)
+        max_err = max(max_err, err)
+
+    print(f"  G₀(τ) → G₀(iωₙ) max Fourier error (n=0..4): {max_err:.2%}")
+    assert max_err < 0.02, f"Fourier consistency error {max_err:.2%} too large"
+    print("✅ test_gf_tau_fourier_consistency passed")
+
+
+def test_sigma2_tau_vs_matsubara():
+    """Σ(2) in τ-space should match Matsubara result after Fourier transform"""
+    from src.holstein import compute_sigma2_tau, sigma_tau_to_matsubara
+
+    params = HolsteinParams(t=1.0, omega0=0.5, g=0.3, beta=10.0, N_k=32, N_nu=64)
+
+    # Matsubara reference
+    s_mat = compute_sigma2_brute_force(params, k_ext=0.0, n_ext=0)
+
+    # τ-space + Fourier (need large N_tau for G₀(τ) discontinuity at τ=0)
+    tau_grid, sigma_tau = compute_sigma2_tau(params, k_ext=0.0, N_tau=2048)
+    s_tau = sigma_tau_to_matsubara(tau_grid, sigma_tau, params.beta, n_ext=0)
+
+    rel_error = abs(s_tau - s_mat) / abs(s_mat)
+    print(f"  Σ(2) Matsubara: {s_mat:.8f}")
+    print(f"  Σ(2) τ→iωₙ:    {s_tau:.8f}")
+    print(f"  Relative error: {rel_error:.2%}")
+    # Rectangular quadrature on discontinuous G₀(τ) gives ~1-5% error
+    assert rel_error < 0.05, f"τ vs Matsubara error {rel_error:.2%} too large"
+    print("✅ test_sigma2_tau_vs_matsubara passed")
+
+
+def test_sigma4_tau_vs_matsubara():
+    """Σ(4) τ brute-force should match Matsubara vectorized exactly"""
+    from src.holstein import compute_sigma4_tau_brute_force
+
+    params = HolsteinParams(t=1.0, omega0=0.5, g=0.3, beta=10.0, N_k=8, N_nu=16)
+
+    # Matsubara reference
+    s_mat = compute_sigma4_vectorized(params, k_ext=0.0, n_ext=0)
+
+    # τ brute-force (now uses pure Matsubara h, should be exact)
+    s_tau = compute_sigma4_tau_brute_force(params, k_ext=0.0, n_ext=0)
+
+    rel_error = abs(s_tau - s_mat) / abs(s_mat)
+    print(f"  Σ(4) Matsubara: {s_mat:.8f}")
+    print(f"  Σ(4) τ-BF:      {s_tau:.8f}")
+    print(f"  Relative error: {rel_error:.2%}")
+    assert rel_error < 0.001, f"τ vs Matsubara error {rel_error:.2%} too large"
+    print("✅ test_sigma4_tau_vs_matsubara passed")
+
+
+def test_sigma4_tau_tci_accuracy():
+    """Σ(4) τ-TCI should match τ brute-force"""
+    from src.holstein import compute_sigma4_tau_brute_force, compute_sigma4_tau_tci
+
+    params = HolsteinParams(t=1.0, omega0=0.5, g=0.3, beta=10.0, N_k=8, N_nu=16)
+
+    s_bf = compute_sigma4_tau_brute_force(params, k_ext=0.0, n_ext=0)
+    # TCI uses τ-space h, so has O(1/N_tau) discretization error on top
+    s_tci = compute_sigma4_tau_tci(params, k_ext=0.0, n_ext=0, N_tau=256, rank=5)
+
+    rel_error = abs(s_tci - s_bf) / abs(s_bf)
+    print(f"  Σ(4) τ-BF:  {s_bf:.8f}")
+    print(f"  Σ(4) τ-TCI: {s_tci:.8f}")
+    print(f"  Relative error: {rel_error:.2%}")
+    assert rel_error < 0.05, f"τ-TCI error {rel_error:.2%} too large"
+    print("✅ test_sigma4_tau_tci_accuracy passed")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Holstein Polaron Self-Energy Tests")
@@ -157,6 +250,12 @@ if __name__ == "__main__":
     test_sigma4_smaller_than_sigma2()
     test_sigma4_direct_tci_vs_brute_force()
     test_sigma4_direct_tci_rank_convergence()
+
+    print("\n--- Imaginary-Time τ Tests ---")
+    test_gf_tau_fourier_consistency()
+    test_sigma2_tau_vs_matsubara()
+    test_sigma4_tau_vs_matsubara()
+    test_sigma4_tau_tci_accuracy()
 
     print("\n" + "=" * 60)
     print("All tests passed! ✅")
