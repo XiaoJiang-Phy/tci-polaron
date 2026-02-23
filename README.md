@@ -30,8 +30,9 @@ Unlike traditional **Diagrammatic Monte Carlo (DiagMC)** methods which suffer fr
 - **2nd-order self-energy** $\Sigma^{(2)}$: Single phonon exchange (rainbow diagram)
 - **4th-order self-energy** $\Sigma^{(4)}$: Two-phonon exchange with full 4D summation
 - **Direct 4D TCI** for $\Sigma^{(4)}$: No dimensional pre-reduction — TCI discovers the tensor structure directly
+- **Imaginary-time τ representation**: $G_0(\tau) = -e^{-\varepsilon\tau} n_F(\varepsilon)$, with **first-moment tail subtraction** for $O(1/N_\tau^2)$ Fourier convergence
 - **Brute-force, vectorized, and TCI** implementations for comparison
-- Bare electron/phonon Green's functions in Matsubara formalism
+- Bare electron/phonon Green's functions in both Matsubara and imaginary-time formalism
 
 ### Integration Methods
 
@@ -54,7 +55,7 @@ tci-polaron/
 │   ├── holstein.py           # Holstein polaron Σ(2) and Σ(4)
 │   ├── aci_core.py           # Adaptive Cross Interpolation
 │   └── tt_core_tci.py        # TT-Core construction experiments
-├── tests/                     # Test suite (12 tests)
+├── tests/                     # Test suite (16 tests)
 │   ├── test_holstein.py      # Holstein self-energy tests (incl. direct 4D TCI)
 │   ├── test_fix.py           # QTT regression tests
 │   └── test_stable_integral.py
@@ -94,9 +95,11 @@ python main.py
 Σ(2) TCI (rank=5): -0.00000000-0.01662247j  相对误差: 0.00%
 
 --- 模式 5: Σ(4) 直接 4D TCI (无降维) ---
-4D 总点数: 1.05e+06
-Σ(4) 向量化:  -0.00092653  (0.61s)
-Σ(4) TCI r=20: -0.00092653  (0.61s)  相对误差: 0.00%
+Σ(4) TCI r=20: -0.00092653  相对误差: 0.00%
+
+--- 模式 6: Σ(4) 虚时间 τ 表示 ---
+Σ(4) τ-BF (精确):  -0.00157287  误差 0.0000%
+τ-TCI (tail subtraction) N_τ=128: 误差 0.0367%
 ```
 
 ### Run Tests
@@ -148,6 +151,17 @@ print(f"Σ(2) TCI:         {sigma_tci:.8f}")
 | Direct 4D TCI, rank=10 | 0.25s | 15.4% |
 | Direct 4D TCI, rank=20 | 0.61s | **0.00%** |
 
+### Imaginary-Time τ Representation ($N_k=8, N_\nu=16$)
+
+| Method | $N_\tau$ | Error vs Matsubara |
+|--------|----------|--------------------|
+| τ brute-force (Matsubara $h$) | — | **0.00%** (exact) |
+| τ-TCI (no tail subtraction) | 128 | 5.80% |
+| τ-TCI (tail subtraction) | 32 | 0.008% |
+| τ-TCI (tail subtraction) | 128 | **0.037%** |
+
+> **Key insight:** First-moment tail subtraction $G_0^{\text{reg}}(\tau) = G_0(\tau) + 1/2$ restores true anti-periodicity, improving Fourier convergence from $O(1/N_\tau)$ to $O(1/N_\tau^2)$.
+
 ### Speed Comparison (Σ(4), N_k=16, N_ν=32)
 
 | Method | Time | Speedup |
@@ -181,7 +195,7 @@ print(f"Σ(2) TCI:         {sigma_tci:.8f}")
 
 ### Phase 5: 精度与表示优化 (近期)
 
-- [ ] **5a: 虚时间 τ 表示** — 将 Matsubara 频率 $G_0(i\omega_n)$ 替换为虚时间 $G_0(\tau) = -e^{-\varepsilon\tau} n_F(\varepsilon)$，预期降低 TT 秩需求（光滑函数 vs 有理函数极点）
+- [x] **5a: 虚时间 τ 表示** — $G_0(\tau)$ 传播子 + first-moment tail subtraction + 解析 $D_0^{\text{FT}}(i\omega')$，$O(1/N_\tau^2)$ 收敛 ✅
 - [ ] **5b: 坐标旋转消除对角耦合** — $(q_1, q_2) \to (Q, q_-)$ 使动量守恒 $q_1+q_2=Q$ 变为直积结构，改善 CUR 收敛
 - [ ] **5c: 6阶自能 Σ(6)** — 6D 积分，真正展示 TCI 相对于暴力求和的复杂度优势 $O(r \cdot N^3)$ vs $O(N^6)$
 - [ ] **5d: 与 TCI.jl 对比** — Julia 的 TensorCrossInterpolation.jl 提供显式 TT-core，可做标准 TT 积分，验证 CUR 方案的近似瓶颈
@@ -207,6 +221,7 @@ Standard numerical methods struggle with the "curse of dimensionality" at higher
 - Savostyanov, D. & Oseledets, I. (2011). Fast Adaptive Interpolation of Multi-dimensional Arrays. *LNCS*
 - Ritter, M. et al. (2024). Quantics Tensor Cross Interpolation. *arXiv:2303.11819*
 - Shinaoka, H. et al. (2023). Multiscale Space-Time Ansatz for Correlation Functions of Quantum Systems. *Phys. Rev. X*
+- Boehnke, L. et al. (2011). Orthogonal polynomial representation of imaginary-time Green's functions. *Phys. Rev. B* 84, 075145
 
 ---
 
