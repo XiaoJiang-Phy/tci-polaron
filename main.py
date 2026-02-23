@@ -1,9 +1,11 @@
 import numpy as np
+import time
 from src.tci_core import TCIFitter
 from src.qtt_utils import QTTEncoder
 from src.tci_utils import compute_tci_integral
 from src.physics_models import vectorized_gaussian
-from src.holstein import HolsteinParams, compute_sigma2_brute_force, compute_sigma2_tci
+from src.holstein import (HolsteinParams, compute_sigma2_brute_force, compute_sigma2_tci,
+                          compute_sigma4_vectorized, compute_sigma4_direct_tci)
 
 THEORETICAL = 5.56832
 
@@ -67,6 +69,33 @@ def run_holstein_demo():
     rel_error = abs(sigma_tci - sigma_bf) / abs(sigma_bf) * 100
     print(f"\n相对误差: {rel_error:.2f}%")
 
+def run_sigma4_direct_tci_demo():
+    print("\n--- 模式 5: Σ(4) 直接 4D TCI (无降维) ---")
+    params = HolsteinParams(t=1.0, omega0=0.5, g=0.3, beta=10.0, N_k=16, N_nu=32)
+    print(f"参数: t={params.t}, ω₀={params.omega0}, g={params.g}, β={params.beta}")
+    print(f"网格: N_k={params.N_k}, N_ν={params.N_nu}")
+    print(f"4D 总点数: {params.N_k**2 * (2*params.N_nu)**2:.2e}")
+
+    k_ext, n_ext = 0.0, 0
+
+    # Vectorized brute-force (reference)
+    print("\n计算向量化暴力求和 (参考)...")
+    t0 = time.time()
+    sigma_vec = compute_sigma4_vectorized(params, k_ext, n_ext)
+    t_vec = time.time() - t0
+    print(f"  Σ(4) 向量化: {sigma_vec:.8f}  ({t_vec:.2f}s)")
+
+    # Direct 4D TCI
+    for rank in [5, 10, 20]:
+        print(f"\n计算直接 4D TCI (rank={rank})...")
+        t0 = time.time()
+        sigma_tci = compute_sigma4_direct_tci(params, k_ext, n_ext, rank=rank, verbose=True)
+        t_tci = time.time() - t0
+        rel_err = abs(sigma_tci - sigma_vec) / abs(sigma_vec) * 100
+        print(f"  Σ(4) TCI: {sigma_tci:.8f}  ({t_tci:.2f}s)")
+        print(f"  相对误差: {rel_err:.2f}%")
+
 if __name__ == "__main__":
     run_normal_demo()
     run_holstein_demo()
+    run_sigma4_direct_tci_demo()
