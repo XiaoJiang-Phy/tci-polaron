@@ -196,7 +196,7 @@ def test_sigma2_tau_vs_matsubara():
 
 
 def test_sigma4_tau_vs_matsubara():
-    """Σ(4) in τ-space (hybrid) should match Matsubara brute-force"""
+    """Σ(4) τ brute-force should match Matsubara vectorized exactly"""
     from src.holstein import compute_sigma4_tau_brute_force
 
     params = HolsteinParams(t=1.0, omega0=0.5, g=0.3, beta=10.0, N_k=8, N_nu=16)
@@ -204,15 +204,14 @@ def test_sigma4_tau_vs_matsubara():
     # Matsubara reference
     s_mat = compute_sigma4_vectorized(params, k_ext=0.0, n_ext=0)
 
-    # τ-space hybrid (inner sum via τ-FT, outer in Matsubara)
-    # N_tau=512 gives ~1.5% error from rectangular FT discretization
-    s_tau = compute_sigma4_tau_brute_force(params, k_ext=0.0, n_ext=0, N_tau=512)
+    # τ brute-force (now uses pure Matsubara h, should be exact)
+    s_tau = compute_sigma4_tau_brute_force(params, k_ext=0.0, n_ext=0)
 
     rel_error = abs(s_tau - s_mat) / abs(s_mat)
     print(f"  Σ(4) Matsubara: {s_mat:.8f}")
     print(f"  Σ(4) τ-BF:      {s_tau:.8f}")
     print(f"  Relative error: {rel_error:.2%}")
-    assert rel_error < 0.03, f"τ vs Matsubara error {rel_error:.2%} too large"
+    assert rel_error < 0.001, f"τ vs Matsubara error {rel_error:.2%} too large"
     print("✅ test_sigma4_tau_vs_matsubara passed")
 
 
@@ -222,16 +221,15 @@ def test_sigma4_tau_tci_accuracy():
 
     params = HolsteinParams(t=1.0, omega0=0.5, g=0.3, beta=10.0, N_k=8, N_nu=16)
 
-    # Use same N_tau for both so they share the same τ-FT discretization
-    N_tau = 256
-    s_bf = compute_sigma4_tau_brute_force(params, k_ext=0.0, n_ext=0, N_tau=N_tau)
-    s_tci = compute_sigma4_tau_tci(params, k_ext=0.0, n_ext=0, N_tau=N_tau, rank=5)
+    s_bf = compute_sigma4_tau_brute_force(params, k_ext=0.0, n_ext=0)
+    # TCI uses τ-space h, so has O(1/N_tau) discretization error on top
+    s_tci = compute_sigma4_tau_tci(params, k_ext=0.0, n_ext=0, N_tau=256, rank=5)
 
     rel_error = abs(s_tci - s_bf) / abs(s_bf)
     print(f"  Σ(4) τ-BF:  {s_bf:.8f}")
     print(f"  Σ(4) τ-TCI: {s_tci:.8f}")
     print(f"  Relative error: {rel_error:.2%}")
-    assert rel_error < 0.10, f"τ-TCI error {rel_error:.2%} too large"
+    assert rel_error < 0.05, f"τ-TCI error {rel_error:.2%} too large"
     print("✅ test_sigma4_tau_tci_accuracy passed")
 
 

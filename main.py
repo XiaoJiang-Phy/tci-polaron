@@ -110,24 +110,21 @@ def run_tau_demo():
     t_mat = time.time() - t0
     print(f"\n  Σ(4) Matsubara 参考:     {sigma_mat:.8f}  ({t_mat:.2f}s)")
 
-    # τ-space brute force convergence
-    print("\n  τ-space 暴力求和收敛:")
+    # τ-BF (now exact, uses Matsubara h)
+    t0 = time.time()
+    s_bf = compute_sigma4_tau_brute_force(params, k_ext, n_ext)
+    t_bf = time.time() - t0
+    err_bf = abs(s_bf - sigma_mat) / abs(sigma_mat) * 100
+    print(f"  Σ(4) τ-BF (精确):       {s_bf:.8f}  ({t_bf:.2f}s, 误差 {err_bf:.4f}%)")
+
+    # τ-TCI convergence with N_tau
+    print("\n  τ-TCI (direct 2D sum, τ-space h) 收敛:")
     for N_tau in [128, 256, 512]:
         t0 = time.time()
-        s = compute_sigma4_tau_brute_force(params, k_ext, n_ext, N_tau=N_tau)
+        s_tci = compute_sigma4_tau_tci(params, k_ext, n_ext, N_tau=N_tau)
         dt = time.time() - t0
-        err = abs(s - sigma_mat) / abs(sigma_mat) * 100
-        print(f"    N_τ={N_tau:4d}: {s:.8f}  ({dt:.2f}s, 误差 {err:.2f}%)")
-
-    # τ-TCI vs τ brute force
-    print("\n  τ-TCI vs τ-暴力求和 (N_τ=256):")
-    s_bf = compute_sigma4_tau_brute_force(params, k_ext, n_ext, N_tau=256)
-    for rank in [3, 5, 10]:
-        t0 = time.time()
-        s_tci = compute_sigma4_tau_tci(params, k_ext, n_ext, N_tau=256, rank=rank)
-        dt = time.time() - t0
-        err = abs(s_tci - s_bf) / abs(s_bf) * 100
-        print(f"    rank={rank:2d}: {s_tci:.8f}  ({dt:.2f}s, 误差 {err:.2f}%)")
+        err = abs(s_tci - sigma_mat) / abs(sigma_mat) * 100
+        print(f"    N_τ={N_tau:4d}: {s_tci:.8f}  ({dt:.2f}s, 误差 {err:.2f}%)")
 
 
 if __name__ == "__main__":

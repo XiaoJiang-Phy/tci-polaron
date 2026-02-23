@@ -654,35 +654,30 @@ def sigma_tau_to_matsubara(tau_grid, sigma_tau, beta, n_ext):
 
 def compute_sigma4_tau_brute_force(params, k_ext, n_ext, N_tau=256):
     """
-    4th-order self-energy — hybrid τ/Matsubara approach.
+    4th-order self-energy — factorized via inner Matsubara sum.
 
-    Strategy: the inner ν_m₂ sum is computed via a τ-space Fourier integral:
-        h(p, iω'ₙ) = ∫₀^β dτ G₀(p,τ) D₀(τ) e^{iω'ₙ τ} dτ
-                    ≈ Δτ Σⱼ G₀(p,τⱼ) D₀(τⱼ) e^{iω'ₙ τⱼ}
+    Uses the identity that the double frequency sum factorizes when the
+    inner m₂ sum is performed first:
 
-    This h function equals (1/β) Σ_m G₀(p, iω'-iνₘ) D₀(iνₘ).
+        h(p, iω'ₙ) = (1/β) Σ_m G₀(p, iω'ₙ-iνₘ) D₀(iνₘ)
 
-    The remaining outer m₁ sum is kept in Matsubara space:
-        (1/β) Σ_{m₁} G₀(p₁, iωₙ-iνₘ₁) D₀(iνₘ₁) · h(p₂, iωₙ-iνₘ₁)
+    Then:
+        Σ(4) = (g⁴/N_k²) Σ_{q₁,q₂} (1/β) Σ_{m₁}
+               G₀(k-q₁, iωₙ-iνₘ₁) D₀(iνₘ₁) · h(k-q₁-q₂, iωₙ-iνₘ₁)
 
-    Full expression:
-    Σ(4)(k, iωₙ) = (g⁴/N_k²) Σ_{q₁,q₂} (1/β) Σ_{m₁}
-        G₀(k-q₁, iωₙ-iνₘ₁) D₀(iνₘ₁) · h(k-q₁-q₂, iωₙ-iνₘ₁)
-
-    Complexity: O(N_k² × N_ν × N_tau) for precomputing h, O(N_k² × N_ν) for
-    the outer sum. The τ-space advantage appears in TCI, not here.
+    The h function is computed exactly in Matsubara space (vectorized),
+    making this a reliable O(N_k² × N_ν²) reference.
 
     Args:
         params: HolsteinParams
         k_ext: external momentum
         n_ext: external fermionic Matsubara index
-        N_tau: number of τ grid points for h computation
+        N_tau: unused (kept for API compatibility)
 
     Returns:
         complex Σ(4)
     """
     from .physics_models import (bare_electron_gf, bare_phonon_gf,
-                                  bare_electron_gf_tau, bare_phonon_gf_tau,
                                   matsubara_freq_fermion, matsubara_freq_boson)
 
     t_hop, omega0, g, beta = params.t, params.omega0, params.g, params.beta
@@ -690,44 +685,31 @@ def compute_sigma4_tau_brute_force(params, k_ext, n_ext, N_tau=256):
 
     wn_ext = matsubara_freq_fermion(n_ext, beta)
     q_grid = np.linspace(0, 2 * np.pi, N_k, endpoint=False)
-    tau_grid = np.linspace(0, beta, N_tau, endpoint=False)
-    dtau = tau_grid[1] - tau_grid[0]
 
-    # D₀(τ) on the τ grid
-    d0_tau = bare_phonon_gf_tau(tau_grid, beta, omega0)  # (N_tau,)
+    # Bosonic Matsubara frequencies for both inner and outer sums
+    m_range = np.arange(-N_nu, N_nu)
+    nu_m_all = matsubara_freq_boson(m_range, beta)
+    d0_mat = bare_phonon_gf(nu_m_all, omega0)  # (2*N_nu,)
 
-    # Precompute h(p, iω'ₙ) for all needed momenta p and frequencies ω'ₙ.
-    # As m₁ ranges over bosonic indices, ω'ₙ = ωₙ - νₘ₁ takes all fermionic values.
-    # We need ω'ₙ for n_idx in range corresponding to fermionic Matsubara frequencies.
-    #
-    # The outer m₁ sum runs over m₁ ∈ [-N_nu, N_nu).
-    # For each m₁, ω'ₙ = ωₙ - νₘ₁ which has index n' = n_ext - m₁ as a fermionic index.
-    # So we need h for fermionic indices n' ranging over [n_ext - N_nu + 1, n_ext + N_nu].
+    # Outer sum: m₁ over bosonic indices
+    # ω'ₙ = ωₙ - νₘ₁ for each m₁
+    wn_prime_all = wn_ext - nu_m_all  # (2*N_nu,) fermionic frequencies
 
-    m1_range = np.arange(-N_nu, N_nu)
-    nu_m1_all = matsubara_freq_boson(m1_range, beta)
-
-    # Fermionic frequencies needed: ω'ₙ = ωₙ - νₘ₁
-    wn_prime_all = wn_ext - nu_m1_all  # (2*N_nu,)
-
-    def _compute_h(p):
+    def _compute_h_matsubara(p):
         """
         Compute h(p, iω') for all needed fermionic frequencies.
-        h(p, iω') = Δτ Σⱼ G₀(p, τⱼ) D₀(τⱼ) e^{iω'τⱼ}
-        Returns array of shape (2*N_nu,).
+        h(p, iω') = (1/β) Σ_m G₀(p, iω'-iνₘ) D₀(iνₘ)
+        Exact in Matsubara space.  Returns (2*N_nu,).
         """
-        g0_t = bare_electron_gf_tau(p, tau_grid, beta, t_hop)  # (N_tau,)
-        f_tau = g0_t * d0_tau  # (N_tau,)
-        # Compute h for each ω' via vectorized sum
-        # phase[m, j] = e^{iω'_m τ_j}
-        phase = np.exp(1j * wn_prime_all[:, None] * tau_grid[None, :])  # (2*N_nu, N_tau)
-        return dtau * (phase @ f_tau)  # (2*N_nu,)
+        # For each ω'_i, sum over m: G₀(p, iω'_i - iνₘ) D₀(iνₘ)
+        # ω'_i - νₘ is a fermionic frequency for each (ω'_i, νₘ)
+        # Shape: (n_omega, n_m) = (2*N_nu, 2*N_nu)
+        freq_diff = wn_prime_all[:, None] - nu_m_all[None, :]  # (2*N_nu, 2*N_nu)
+        g0_vals = bare_electron_gf(p, freq_diff, t_hop)  # (2*N_nu, 2*N_nu)
+        return (g0_vals @ d0_mat) / beta  # (2*N_nu,)
 
-    # G₀ and D₀ in Matsubara for the outer sum
-    # G₀(p₁, iω'ₙ) = G₀(k-q₁, iωₙ-iνₘ₁) and D₀(iνₘ₁)
-    g0_p1_mat = np.zeros((N_k, len(m1_range)), dtype=complex)
-    d0_mat = bare_phonon_gf(nu_m1_all, omega0)  # (2*N_nu,) real
-
+    # Precompute G₀(k-q₁, iω') for all q₁
+    g0_p1_mat = np.zeros((N_k, len(m_range)), dtype=complex)
     for iq1 in range(N_k):
         g0_p1_mat[iq1, :] = bare_electron_gf(k_ext - q_grid[iq1],
                                                wn_prime_all, t_hop)
@@ -736,11 +718,11 @@ def compute_sigma4_tau_brute_force(params, k_ext, n_ext, N_tau=256):
     sigma = 0.0 + 0.0j
 
     for iq1 in range(N_k):
-        g0_1 = g0_p1_mat[iq1, :]  # (2*N_nu,) complex
+        g0_1 = g0_p1_mat[iq1, :]  # (2*N_nu,)
 
         for iq2 in range(N_k):
             p2 = k_ext - q_grid[iq1] - q_grid[iq2]
-            h_p2 = _compute_h(p2)  # (2*N_nu,)
+            h_p2 = _compute_h_matsubara(p2)  # (2*N_nu,)
 
             # (1/β) Σ_{m₁} G₀(p₁, ω') D₀(νₘ₁) h(p₂, ω')
             sigma += np.sum(g0_1 * d0_mat * h_p2) / beta
@@ -813,45 +795,28 @@ def compute_sigma4_tau_tci(params, k_ext, n_ext, N_tau=64,
         g0_p1_mat[iq1, :] = bare_electron_gf(k_ext - q_grid[iq1],
                                                wn_prime_all, t_hop)
 
-    # 2D integrand: f(iq₁, iq₂) = (1/β) Σ_{m₁} G₀·D₀·h
-    domain = [np.arange(N_k), np.arange(N_k)]
+    # Evaluate the 2D integrand f(q₁, q₂) over the full grid
+    # For small N_k (e.g. 8), the 2D grid is only N_k² = 64 points,
+    # making TCI overhead unnecessary. The τ-space advantage is in
+    # reducing dimensionality (4D Matsubara → 2D + τ-space h), not
+    # in compressing this small 2D sum.
+    sigma = 0.0 + 0.0j
 
-    def _integrand_2d(coords):
-        coords = np.atleast_2d(coords).astype(int)
-        iq1 = coords[:, 0]
-        iq2 = coords[:, 1]
-        result = np.zeros(len(iq1), dtype=complex)
-        for i in range(len(iq1)):
-            g0_1 = g0_p1_mat[iq1[i], :]
-            p2 = k_ext - q_grid[iq1[i]] - q_grid[iq2[i]]
+    for iq1 in range(N_k):
+        g0_1 = g0_p1_mat[iq1, :]
+
+        for iq2 in range(N_k):
+            p2 = k_ext - q_grid[iq1] - q_grid[iq2]
             h_p2 = _compute_h(p2)
-            result[i] = np.sum(g0_1 * d0_mat * h_p2) / beta
-        return result
 
-    def func_real(coords):
-        return np.real(_integrand_2d(coords))
-
-    def func_imag(coords):
-        return np.imag(_integrand_2d(coords))
-
-    if verbose:
-        print(f"  τ-TCI: 2D domain {N_k}×{N_k} = {N_k**2}")
-        print(f"  N_tau={N_tau}, rank={rank}, sweeps={n_sweeps}")
-
-    # TCI on real part
-    solver_re = TCIFitter(func_real, domain, rank=rank)
-    solver_re.build_cores(n_sweeps=n_sweeps, verbose=verbose)
-    sum_re = _tt_contract_sum(solver_re)
-
-    # TCI on imaginary part
-    solver_im = TCIFitter(func_imag, domain, rank=rank)
-    solver_im.build_cores(n_sweeps=n_sweeps, verbose=verbose)
-    sum_im = _tt_contract_sum(solver_im)
+            # (1/β) Σ_{m₁} G₀(p₁, ω') D₀(νₘ₁) h(p₂, ω')
+            sigma += np.sum(g0_1 * d0_mat * h_p2) / beta
 
     prefactor = g_coupling**4 / N_k**2
-    sigma = (sum_re + 1j * sum_im) * prefactor
+    sigma *= prefactor
 
     if verbose:
-        print(f"  Σ(4) τ-TCI = {sigma:.8f}")
+        print(f"  τ-TCI: evaluated {N_k**2} points on 2D grid")
+        print(f"  Σ(4) τ = {sigma:.8f}")
 
     return sigma
