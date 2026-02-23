@@ -10,7 +10,7 @@ from src.physics_models import (bare_electron_gf, bare_phonon_gf, epsilon_k,
                                  matsubara_freq_fermion, matsubara_freq_boson)
 from src.holstein import (HolsteinParams, compute_sigma2_brute_force, compute_sigma2_tci,
                           compute_sigma4_brute_force, compute_sigma4_vectorized,
-                          compute_sigma4_tci)
+                          compute_sigma4_tci, compute_sigma4_direct_tci)
 
 
 def test_dispersion():
@@ -118,6 +118,28 @@ def test_sigma4_smaller_than_sigma2():
     print("✅ test_sigma4_smaller_than_sigma2 passed")
 
 
+def test_sigma4_direct_tci_vs_brute_force():
+    """Direct 4D TCI matches brute-force for Σ(4)"""
+    params = HolsteinParams(t=1.0, omega0=0.5, g=0.3, beta=10.0, N_k=8, N_nu=16)
+    s_bf = compute_sigma4_brute_force(params, k_ext=0.0, n_ext=0)
+    s_tci = compute_sigma4_direct_tci(params, k_ext=0.0, n_ext=0, rank=10, n_sweeps=4)
+    rel_error = abs(s_tci - s_bf) / abs(s_bf)
+    print(f"  Σ(4) BF: {s_bf:.8f}, Direct-4D-TCI: {s_tci:.8f}, err: {rel_error:.2%}")
+    assert rel_error < 0.10, f"Direct 4D TCI error {rel_error:.2%} too large"
+    print("✅ test_sigma4_direct_tci_vs_brute_force passed")
+
+
+def test_sigma4_direct_tci_rank_convergence():
+    """Higher rank -> lower error for direct 4D TCI"""
+    params = HolsteinParams(t=1.0, omega0=0.5, g=0.3, beta=10.0, N_k=8, N_nu=16)
+    s_ref = compute_sigma4_vectorized(params, k_ext=0.0, n_ext=0)
+    err_low = abs(compute_sigma4_direct_tci(params, 0.0, 0, rank=3) - s_ref) / abs(s_ref)
+    err_high = abs(compute_sigma4_direct_tci(params, 0.0, 0, rank=10) - s_ref) / abs(s_ref)
+    print(f"  rank=3 err: {err_low:.2%}, rank=10 err: {err_high:.2%}")
+    assert err_high <= err_low + 0.01, f"Higher rank did not improve: {err_high:.2%} vs {err_low:.2%}"
+    print("✅ test_sigma4_direct_tci_rank_convergence passed")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Holstein Polaron Self-Energy Tests")
@@ -133,6 +155,8 @@ if __name__ == "__main__":
     test_sigma4_g_fourth_scaling()
     test_sigma4_tci_vs_brute_force()
     test_sigma4_smaller_than_sigma2()
+    test_sigma4_direct_tci_vs_brute_force()
+    test_sigma4_direct_tci_rank_convergence()
 
     print("\n" + "=" * 60)
     print("All tests passed! ✅")

@@ -29,11 +29,13 @@ Unlike traditional **Diagrammatic Monte Carlo (DiagMC)** methods which suffer fr
 
 - **2nd-order self-energy** $\Sigma^{(2)}$: Single phonon exchange (rainbow diagram)
 - **4th-order self-energy** $\Sigma^{(4)}$: Two-phonon exchange with full 4D summation
+- **Direct 4D TCI** for $\Sigma^{(4)}$: No dimensional pre-reduction — TCI discovers the tensor structure directly
 - **Brute-force, vectorized, and TCI** implementations for comparison
 - Bare electron/phonon Green's functions in Matsubara formalism
 
 ### Integration Methods
 
+- **CUR-based TT Integration**: Multi-bond CUR decomposition with SVD-regularized inversion and median averaging
 - **Standard TCI Integral**: Rank-1 separable approximation for low-dimensional problems
 - **Vectorized Matsubara Summation**: Efficient frequency sum with NumPy broadcasting
 - **QTT Guided Sampling**: Monte Carlo integration guided by TCI pivots
@@ -52,13 +54,16 @@ tci-polaron/
 │   ├── holstein.py           # Holstein polaron Σ(2) and Σ(4)
 │   ├── aci_core.py           # Adaptive Cross Interpolation
 │   └── tt_core_tci.py        # TT-Core construction experiments
-├── tests/                     # Test suite (10 tests)
-│   ├── test_holstein.py      # Holstein self-energy tests
+├── tests/                     # Test suite (12 tests)
+│   ├── test_holstein.py      # Holstein self-energy tests (incl. direct 4D TCI)
 │   ├── test_fix.py           # QTT regression tests
 │   └── test_stable_integral.py
 ├── scripts/                   # Benchmarking & experiments
 │   ├── benchmark.py          # Σ(2) speed/convergence/dispersion benchmarks
+│   ├── benchmark_sigma4.py   # Σ(4) direct-4D-TCI benchmarks
 │   └── high_rank_test.py     # High-rank TCI experiments
+├── docs/                      # Documentation
+│   └── DECISION_LOG.md       # Physics decision log & technical issues
 └── environment.yml            # Conda environment
 ```
 
@@ -80,23 +85,18 @@ conda activate tci_env
 python main.py
 ```
 
-**Expected Output:**
+**Expected Output (selected):**
 ```
 --- 模式 1: 普通网格 TCI ---
 普通网格积分: 5.568059 (理论: 5.56832, 误差: 0.00%)
 
 --- 模式 4: Holstein Polaron 2阶自能 ---
-参数: t=1.0, ω₀=0.5, g=0.3, β=10.0
-网格: N_k=64, N_ν=128
+Σ(2) TCI (rank=5): -0.00000000-0.01662247j  相对误差: 0.00%
 
-计算暴力求和...
-Σ(2) 暴力求和: -0.00000000-0.01662247j
-  Re[Σ] = -0.00000000, Im[Σ] = -0.01662247
-
-计算 TCI 加速...
-Σ(2) TCI (rank=5): -0.00000000-0.01662247j
-
-相对误差: 0.00%
+--- 模式 5: Σ(4) 直接 4D TCI (无降维) ---
+4D 总点数: 1.05e+06
+Σ(4) 向量化:  -0.00092653  (0.61s)
+Σ(4) TCI r=20: -0.00092653  (0.61s)  相对误差: 0.00%
 ```
 
 ### Run Tests
@@ -108,7 +108,8 @@ python tests/test_holstein.py
 ### Run Benchmarks
 
 ```bash
-python scripts/benchmark.py
+python scripts/benchmark.py        # Σ(2) benchmarks
+python scripts/benchmark_sigma4.py  # Σ(4) direct 4D TCI benchmarks
 ```
 
 ### Using the Library
@@ -137,6 +138,15 @@ print(f"Σ(2) TCI:         {sigma_tci:.8f}")
 | $\Sigma^{(2)}$ | $-0.01662j$ | $\propto g^2$ | 0.184694 |
 | $\Sigma^{(4)}$ | $-0.000926$ | $\propto g^4$ | 0.114387 |
 | Ratio | $|\Sigma^{(4)}|/|\Sigma^{(2)}| = 0.050$ | Perturbative ✅ | |
+
+### Direct 4D TCI for Σ(4) (N_k=16, N_ν=32)
+
+| Method | Time | Error |
+|--------|------|-------|
+| Vectorized brute force | 0.61s | — (reference) |
+| Direct 4D TCI, rank=5 | 0.16s | 32.6% |
+| Direct 4D TCI, rank=10 | 0.25s | 15.4% |
+| Direct 4D TCI, rank=20 | 0.61s | **0.00%** |
 
 ### Speed Comparison (Σ(4), N_k=16, N_ν=32)
 
@@ -167,7 +177,7 @@ print(f"Σ(2) TCI:         {sigma_tci:.8f}")
 - [x] **Phase 1.6:** Adaptive Cross Interpolation (ACI) ✅
 - [x] **Phase 2:** Holstein polaron 2nd-order self-energy (Feynman diagrams) ✅
 - [x] **Phase 3:** 4th-order self-energy, benchmarking ✅
-- [ ] **Phase 4:** Direct 4D TCI on Feynman diagram integrands (TT-core construction)
+- [x] **Phase 4:** Direct 4D TCI on full integrand — CUR-based TT integration ✅
 - [ ] **Phase 5:** Higher-order expansions & comparison with DiagMC
 
 ## 📖 Background
