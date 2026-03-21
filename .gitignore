@@ -181,6 +181,7 @@ cython_debug/
 .cursorindexingignore
 .DS_Store
 .antigravity/
+docs/
 
 # Data and calculation output files
 *.h5

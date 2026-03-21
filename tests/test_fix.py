@@ -10,25 +10,25 @@ from src.tci_utils import compute_tci_integral
 from src.physics_models import vectorized_gaussian
 
 def test_fixed_qtt():
-    # 模拟 main.py 的设置
+    # Replicate main.py setup
     encoder = QTTEncoder(num_vars=3, num_bits=20, bounds=[(-3, 3)]*3)
     def wrapped_f(idx): return vectorized_gaussian(encoder.decode(idx))
     domain = [np.arange(encoder.d, dtype=int)] * encoder.R
     
-    # 手动设置更好的锚点：[7, 0, 0, ...] 对应物理坐标 (0,0,0)
+    # Manually set better anchors: [7, 0, 0, ...] maps to physical coords (0,0,0)
     best_anchor = np.zeros(encoder.R, dtype=int)
-    best_anchor[0] = 7 # 在第 0 层设置所有变量的最高位为 1 (即 0.5)
+    best_anchor[0] = 7 # Set MSB of all variables at layer 0 to 1 (i.e., 0.5)
     
-    # 锚点 1: 全 0, 锚点 2: 中心
+    # Anchor 1: all zeros, Anchor 2: center
     anchors = np.array([np.zeros(encoder.R, dtype=int), best_anchor])
     
-    print("--- 运行测试 (修正锚点后) ---")
+    print("--- Running test (with corrected anchors) ---")
     solver = TCIFitter(wrapped_f, domain, rank=10)
     solver.build_cores(anchors=anchors)
     
     dx_vol = (6.0**3) / (encoder.d ** encoder.R)
     res = compute_tci_integral(solver, dx_vol=dx_vol)
-    print(f"修正后的 QTT 积分: {res:.6f} (期望 ~5.568)")
+    print(f"Corrected QTT integral: {res:.6f} (expected ~5.568)")
 
 if __name__ == "__main__":
     test_fixed_qtt()

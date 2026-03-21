@@ -3,7 +3,7 @@ import numpy as np
 
 def vectorized_gaussian(coords):
     """
-    coords: (M, N) 物理坐标
+    coords: (M, N) physical coordinates
     """
     coords = np.atleast_2d(coords)
     return np.exp(-np.sum(coords**2, axis=1))

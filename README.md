@@ -88,18 +88,18 @@ python main.py
 
 **Expected Output (selected):**
 ```
---- 模式 1: 普通网格 TCI ---
-普通网格积分: 5.568059 (理论: 5.56832, 误差: 0.00%)
+--- Mode 1: Standard Grid TCI ---
+Standard grid integral: 5.568059 (theory: 5.56832, error: 0.00%)
 
---- 模式 4: Holstein Polaron 2阶自能 ---
-Σ(2) TCI (rank=5): -0.00000000-0.01662247j  相对误差: 0.00%
+--- Mode 4: Holstein Polaron 2nd-Order Self-Energy ---
+Sigma(2) TCI (rank=5): -0.00000000-0.01662247j  Relative error: 0.00%
 
---- 模式 5: Σ(4) 直接 4D TCI (无降维) ---
-Σ(4) TCI r=20: -0.00092653  相对误差: 0.00%
+--- Mode 5: Sigma(4) Direct 4D TCI (no dim reduction) ---
+Sigma(4) TCI r=20: -0.00092653  Relative error: 0.00%
 
---- 模式 6: Σ(4) 虚时间 τ 表示 ---
-Σ(4) τ-BF (精确):  -0.00157287  误差 0.0000%
-τ-TCI (tail subtraction) N_τ=128: 误差 0.0367%
+--- Mode 6: Sigma(4) Imaginary-Time tau Representation ---
+Sigma(4) tau-BF (exact):  -0.00157287  error 0.0000%
+tau-TCI (tail subtraction) N_tau=128: error 0.0367%
 ```
 
 ### Run Tests
@@ -193,18 +193,18 @@ print(f"Σ(2) TCI:         {sigma_tci:.8f}")
 - [x] **Phase 3:** 4th-order self-energy, benchmarking ✅
 - [x] **Phase 4:** Direct 4D TCI on full integrand — CUR-based TT integration ✅
 
-### Phase 5: 精度与表示优化 (近期)
+### Phase 5: Precision & Representation Optimization (Near-term)
 
-- [x] **5a: 虚时间 τ 表示** — $G_0(\tau)$ 传播子 + first-moment tail subtraction + 解析 $D_0^{\text{FT}}(i\omega')$，$O(1/N_\tau^2)$ 收敛 ✅
-- [ ] **5b: 坐标旋转消除对角耦合** — $(q_1, q_2) \to (Q, q_-)$ 使动量守恒 $q_1+q_2=Q$ 变为直积结构，改善 CUR 收敛
-- [ ] **5c: 6阶自能 Σ(6)** — 6D 积分，真正展示 TCI 相对于暴力求和的复杂度优势 $O(r \cdot N^3)$ vs $O(N^6)$
-- [ ] **5d: 与 TCI.jl 对比** — Julia 的 TensorCrossInterpolation.jl 提供显式 TT-core，可做标准 TT 积分，验证 CUR 方案的近似瓶颈
+- [x] **5a: Imaginary-time τ representation** — $G_0(\tau)$ propagator + first-moment tail subtraction + analytic $D_0^{\text{FT}}(i\omega')$, $O(1/N_\tau^2)$ convergence ✅
+- [ ] **5b: Coordinate rotation to eliminate diagonal coupling** — $(q_1, q_2) \to (Q, q_-)$ makes momentum conservation $q_1+q_2=Q$ a direct-product structure, improving CUR convergence
+- [ ] **5c: 6th-order self-energy Σ(6)** — 6D integral, truly demonstrating TCI complexity advantage over brute force: $O(r \cdot N^3)$ vs $O(N^6)$
+- [ ] **5d: Comparison with TCI.jl** — Julia's TensorCrossInterpolation.jl provides explicit TT-cores, enabling standard TT integration to verify CUR approximation bottlenecks
 
-### Phase 6: 物理扩展 (中期)
+### Phase 6: Physics Extensions (Mid-term)
 
-- [ ] **6a: 色散声子** — $D_0(q, \nu)$ 加动量依赖 $\omega_q = \omega_0 \sqrt{1 + \alpha \cos q}$，使 $\Sigma(k)$ 有非平凡色散重整化
-- [ ] **6b: DiagMC 对比** — 实现 Diagrammatic Monte Carlo，与 TCI 在精度/速度/scaling 上直接对比
-- [ ] **6c: 2D Holstein** — 二维模型，动量积分 1D → 2D，自能维度 4D → 6D
+- [ ] **6a: Dispersive phonons** — $D_0(q, \nu)$ with momentum-dependent $\omega_q = \omega_0 \sqrt{1 + \alpha \cos q}$, introducing non-trivial dispersion renormalization to $\Sigma(k)$
+- [ ] **6b: DiagMC comparison** — Implement Diagrammatic Monte Carlo for direct accuracy/speed/scaling comparison with TCI
+- [ ] **6c: 2D Holstein** — 2D model, momentum integral 1D → 2D, self-energy dimensions 4D → 6D
 
 
 ## 📖 Background

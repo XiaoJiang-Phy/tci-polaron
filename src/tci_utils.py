@@ -1,48 +1,50 @@
 """
-TCI 积分工具模块
+TCI Integration Utilities
 
-实现基于 Tensor Cross Interpolation 的高效积分算法。
-核心原理：利用 TT 分解的可分性，将 D 维积分分解为 D 个一维积分的收缩。
+Implements efficient integration algorithms based on Tensor Cross Interpolation.
+Core principle: exploit TT separability to decompose a D-dimensional integral
+into a contraction of D one-dimensional integrals.
 
-复杂度: O(D × n × r²) 而非 O(n^D)
+Complexity: O(D × n × r²) instead of O(n^D)
 """
 import numpy as np
 
 
 def compute_tci_integral(solver, dx_vol=1.0):
     """
-    基于 TCI/TT 结构的高效积分计算
+    Efficient integral computation based on the TCI/TT structure.
     
-    算法原理:
-    TCI 构建了函数的低秩近似: 
+    Algorithm:
+    TCI builds a low-rank approximation of the function: 
         f(i_0, ..., i_{D-1}) ≈ Σ_α G_0[α_0, i_0, α_1] × G_1[α_1, i_1, α_2] × ... × G_{D-1}[α_{D-1}, i_{D-1}, α_D]
     
-    积分利用 TT 的可分性:
+    Integration exploits TT separability:
         ∫ f dx ≈ M_0 @ M_1 @ ... @ M_{D-1}
-    其中 M_d = Σ_{i_d} G_d[:, i_d, :] 是边缘化后的传递矩阵
+    where M_d = Σ_{i_d} G_d[:, i_d, :] is the marginalized transfer matrix.
     
     Args:
-        solver: TCIFitter 实例，包含 pivot_paths 和 func
-        dx_vol: 每个格点的体积元
+        solver: TCIFitter instance containing pivot_paths and func
+        dx_vol: volume element per grid point
     
     Returns:
-        积分估计值
+        Integral estimate
     """
     return _compute_integral_tci_stable(solver, dx_vol)
 
 
 def _compute_integral_tci_stable(solver, dx_vol):
     """
-    基于多秩 TCI 的稳定积分实现
+    Stabilized multi-rank TCI integral implementation.
     
-    原理 (2026-02-09 v5):
-    对于 QTT 编码的高维问题，高层 (k > log2(精度)) 对物理积分贡献微小。
-    使用自适应层截断来稳定积分计算。
+    Rationale (2026-02-09 v5):
+    For QTT-encoded high-dimensional problems, high layers (k > log2(precision))
+    contribute negligibly to the physical integral.
+    Uses adaptive layer truncation to stabilize integral computation.
     """
     rank = solver.rank
     n_dims = solver.n_dims
     
-    # 检测是否为 QTT 模式（所有维度具有相同的小 domain）
+    # Detect QTT mode (all dimensions share the same small domain)
     domain_sizes = [len(solver.domain[d]) for d in range(n_dims)]
     is_qtt_mode = (n_dims > 5) and (min(domain_sizes) == max(domain_sizes)) and (domain_sizes[0] <= 16)
     
@@ -54,24 +56,25 @@ def _compute_integral_tci_stable(solver, dx_vol):
 
 def _compute_integral_qtt(solver, dx_vol):
     """
-    QTT 模式下的 TCI 积分计算
+    TCI integral computation in QTT mode.
     
-    核心洞察 (2026-02-09 v8):
-    Rank-1 TCI 对高斯函数不准确，因为高斯不是可分函数。
+    Key insight (2026-02-09 v8):
+    Rank-1 TCI is inaccurate for Gaussians because Gaussians are non-separable
+    in the fused-bit representation.
     
-    正确方法：使用 TCI 的 Pivot 结构进行重要性采样。
-    TCI 保证 Pivot 点位于函数的"重要区域"。
+    Correct approach: importance sampling guided by TCI pivots.
+    TCI guarantees that pivot points lie in the "important regions" of the function.
     
-    积分策略：
-    1. 在所有唯一的 Pivot 点周围进行重要性采样
-    2. 使用 Pivot 函数值作为采样权重
-    3. 修正采样偏差得到无偏估计
+    Integration strategy:
+    1. Importance sample around all unique pivot points
+    2. Use pivot function values as sampling weights
+    3. Correct for sampling bias to obtain unbiased estimate
     """
     rank = solver.rank
     n_dims = solver.n_dims
     d_size = len(solver.domain[0])
     
-    # 收集所有唯一的 Pivot
+    # Collect all unique pivots
     pivot_coords = np.array([solver.domain[dim][solver.pivot_paths[:, dim]] for dim in range(n_dims)]).T
     pivot_vals = solver.func(pivot_coords)
     
@@ -85,8 +88,8 @@ def _compute_integral_qtt(solver, dx_vol):
     
     n_unique = len(unique_indices)
     
-    # 基于 Pivot 的重要性采样积分
-    # 在每个 Pivot 点附近进行稀疏采样
+    # Pivot-guided importance sampling integral
+    # Sparse sampling near each pivot point
     n_samples_per_pivot = 10000
     
     all_vals = []
@@ -94,18 +97,18 @@ def _compute_integral_qtt(solver, dx_vol):
     for idx in unique_indices:
         pivot = solver.pivot_paths[idx]
         
-        # 在 Pivot 附近采样：每个维度独立地随机选择索引
+        # Sample near pivot: independently random index per dimension
         samples = np.zeros((n_samples_per_pivot, n_dims), dtype=int)
         for d in range(n_dims):
-            # 以 Pivot 为中心的采样（但对均匀采样空间）
+            # Pivot-centered sampling (over the uniform index space)
             samples[:, d] = np.random.randint(0, d_size, size=n_samples_per_pivot)
         
-        # 计算函数值
+        # Evaluate function values
         coords = np.array([solver.domain[d][samples[:, d]] for d in range(n_dims)]).T
         vals = solver.func(coords)
         all_vals.extend(vals)
     
-    # 最终积分 = 平均值 × 总格点数 × dx_vol
+    # Final integral = mean value × total grid points × dx_vol
     all_vals = np.array(all_vals)
     total_grid_points = float(d_size ** n_dims)
     
@@ -115,7 +118,7 @@ def _compute_integral_qtt(solver, dx_vol):
 
 
 def _compute_integral_standard_tci(solver, dx_vol):
-    """标准 TCI 积分（非 QTT 模式）"""
+    """Standard TCI integral (non-QTT mode)."""
     rank = solver.rank
     n_dims = solver.n_dims
     
@@ -156,7 +159,7 @@ def _compute_integral_standard_tci(solver, dx_vol):
 
 
 def _build_fiber_tensor_effective(solver, d, l_indices, r_indices, r_eff, n_curr, n_dims):
-    """构建使用有效秩的 fiber 张量"""
+    """Build fiber tensor using effective rank."""
     total_samples = r_eff * n_curr * r_eff
     paths = np.zeros((total_samples, n_dims), dtype=int)
     
@@ -179,13 +182,13 @@ def _build_fiber_tensor_effective(solver, d, l_indices, r_indices, r_eff, n_curr
 
 def _build_fiber_tensor(solver, d, l_indices, r_indices, n_left, n_right, n_curr):
     """
-    构建第 d 层的采样张量 fiber[l, i, r]
+    Build the sampling tensor fiber[l, i, r] for layer d.
     
     fiber[l, i, r] = f(left_path[l], i, right_path[r])
     """
     n_dims = solver.n_dims
     
-    # 批量构建所有 (l, i, r) 组合的坐标
+    # Batch-construct coordinates for all (l, i, r) combinations
     total_samples = n_left * n_curr * n_right
     paths = np.zeros((total_samples, n_dims), dtype=int)
     
@@ -193,21 +196,21 @@ def _build_fiber_tensor(solver, d, l_indices, r_indices, n_left, n_right, n_curr
     for l in range(n_left):
         for i in range(n_curr):
             for r in range(n_right):
-                # 左侧部分
+                # Left part
                 if d > 0:
                     paths[idx, :d] = l_indices[l] if n_left > 1 else l_indices[0]
-                # 当前维度
+                # Current dimension
                 paths[idx, d] = i
-                # 右侧部分
+                # Right part
                 if d < n_dims - 1:
                     paths[idx, d+1:] = r_indices[r] if n_right > 1 else r_indices[0]
                 idx += 1
     
-    # 批量计算函数值
+    # Batch function evaluation
     coords = np.array([solver.domain[dim][paths[:, dim]] for dim in range(n_dims)]).T
     vals = solver.func(coords)
     
-    # Reshape 为 (n_left, n_curr, n_right)
+    # Reshape to (n_left, n_curr, n_right)
     fiber = vals.reshape(n_left, n_curr, n_right)
     
     return fiber
@@ -215,17 +218,17 @@ def _build_fiber_tensor(solver, d, l_indices, r_indices, n_left, n_right, n_curr
 
 def _compute_pivot_diagonal(solver, d):
     """
-    计算第 d 层的对角 Pivot 值
+    Compute diagonal pivot values at layer d.
     
     pivot[r] = f(left[r], pivot_d[r], right[r])
     """
     rank = solver.rank
     n_dims = solver.n_dims
     
-    # 构建完整的 Pivot 路径
+    # Build complete pivot paths
     paths = solver.pivot_paths.copy()  # (rank, n_dims)
     
-    # 计算函数值
+    # Evaluate function values
     coords = np.array([solver.domain[dim][paths[:, dim]] for dim in range(n_dims)]).T
     vals = solver.func(coords)
     
@@ -234,37 +237,35 @@ def _compute_pivot_diagonal(solver, d):
 
 def _apply_stable_pivot_correction(M, pivot_vals, left_vec):
     """
-    稳定的 Pivot 校正
+    Stable pivot correction.
     
-    思路: 不直接求逆，而是使用最小二乘解
-    M_corrected = M / diag(pivot) 但用稳定方式计算
+    Approach: use least-squares instead of direct inversion.
+    M_corrected = M / diag(pivot) computed in a stable manner.
     """
     rank = len(pivot_vals)
     
-    # 找出有效的 Pivot (非零且不太小)
+    # Find valid pivots (nonzero and not too small)
     max_pivot = np.max(np.abs(pivot_vals))
     threshold = max_pivot * 1e-10 if max_pivot > 0 else 1e-15
     
-    # 对角校正
+    # Diagonal correction
     correction = np.ones(rank)
     valid_mask = np.abs(pivot_vals) > threshold
     correction[valid_mask] = 1.0 / pivot_vals[valid_mask]
     
-    # 对无效的 Pivot，使用平均值
+    # For invalid pivots, use the mean correction
     if not np.all(valid_mask):
         mean_correction = np.mean(correction[valid_mask]) if np.any(valid_mask) else 1.0
         correction[~valid_mask] = mean_correction
     
-    # 应用校正 (按列缩放)
+    # Apply correction (column-wise scaling)
     M_corrected = M * correction[np.newaxis, :]
     
     return M_corrected
 
 
 def compute_tci_integral_reference(solver, dx_vol=1.0, n_samples=100000):
-    """
-    参考实现: 蒙特卡洛积分 (用于验证)
-    """
+    """Reference implementation: Monte Carlo integral (for validation)."""
     n_dims = solver.n_dims
     
     samples = np.zeros((n_samples, n_dims), dtype=int)
