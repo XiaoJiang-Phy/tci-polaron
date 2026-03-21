@@ -4,7 +4,9 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8%2B-blue)
-![Status](https://img.shields.io/badge/status-active--development-green)
+![Status](https://img.shields.io/badge/status-prototype-orange)
+
+> **Note:** This repository is a **proof-of-concept prototype** for algorithm validation and benchmarking purposes only. It is not intended for production use. The production implementation is written in C++ in a separate private repository.
 
 ## Overview
 
@@ -136,11 +138,11 @@ print(f"Σ(2) TCI:         {sigma_tci:.8f}")
 
 ### Holstein Polaron Self-Energy ($t=1, \omega_0=0.5, g=0.3, \beta=10$)
 
-| Order | Value | Scaling | $|\Sigma|/g^n$ |
-|-------|-------|---------|----------------|
+| Order | Value | Scaling | $\vert\Sigma\vert/g^n$ |
+|-------|-------|---------|------------------------|
 | $\Sigma^{(2)}$ | $-0.01662j$ | $\propto g^2$ | 0.184694 |
 | $\Sigma^{(4)}$ | $-0.000926$ | $\propto g^4$ | 0.114387 |
-| Ratio | $|\Sigma^{(4)}|/|\Sigma^{(2)}| = 0.050$ | Perturbative ✅ | |
+| Ratio | $\vert\Sigma^{(4)}\vert/\vert\Sigma^{(2)}\vert = 0.050$ | Perturbative | |
 
 ### Direct 4D TCI for Σ(4) (N_k=16, N_ν=32)
 
