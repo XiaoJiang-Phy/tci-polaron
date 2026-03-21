@@ -6,7 +6,7 @@
 ![Python](https://img.shields.io/badge/python-3.8%2B-blue)
 ![Status](https://img.shields.io/badge/status-active--development-green)
 
-## 🚀 Overview
+## Overview
 
 **tci-polaron** is a computational framework for solving the **Electron-Phonon interaction (Polaron)** problem using tensor network methods.
 
@@ -14,7 +14,7 @@ Unlike traditional **Diagrammatic Monte Carlo (DiagMC)** methods which suffer fr
 
 **Current focus**: 1D Holstein polaron self-energy via perturbative Feynman diagram expansion.
 
-## ✨ Features
+## Features
 
 ### Core Algorithms
 
@@ -41,7 +41,7 @@ Unlike traditional **Diagrammatic Monte Carlo (DiagMC)** methods which suffer fr
 - **Vectorized Matsubara Summation**: Efficient frequency sum with NumPy broadcasting
 - **QTT Guided Sampling**: Monte Carlo integration guided by TCI pivots
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 tci-polaron/
@@ -68,7 +68,7 @@ tci-polaron/
 └── environment.yml            # Conda environment
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -132,7 +132,7 @@ print(f"Σ(2) brute force: {sigma_bf:.8f}")
 print(f"Σ(2) TCI:         {sigma_tci:.8f}")
 ```
 
-## 📊 Results
+## Results
 
 ### Holstein Polaron Self-Energy ($t=1, \omega_0=0.5, g=0.3, \beta=10$)
 
@@ -178,24 +178,24 @@ print(f"Σ(2) TCI:         {sigma_tci:.8f}")
 | 128 | -0.01662247 | 1.6×10⁻⁷ |
 | 512 | -0.01662245 | 2.5×10⁻⁹ |
 
-## 🛠️ Technology Stack
+## Technology Stack
 
 - **Core Logic:** Python, NumPy, SciPy
 - **Linear Algebra:** QR decomposition, SVD, pseudo-inverse
 - **Algorithms:** TCI, QTT, MaxVol, DMRG-like sweeps, Matsubara formalism
 
-## 📅 Roadmap
+## Roadmap
 
-- [x] **Phase 1:** TCI for high-dimensional Gaussian integral ✅
-- [x] **Phase 1.5:** QTT numerical stability fixes ✅
-- [x] **Phase 1.6:** Adaptive Cross Interpolation (ACI) ✅
-- [x] **Phase 2:** Holstein polaron 2nd-order self-energy (Feynman diagrams) ✅
-- [x] **Phase 3:** 4th-order self-energy, benchmarking ✅
-- [x] **Phase 4:** Direct 4D TCI on full integrand — CUR-based TT integration ✅
+- [x] **Phase 1:** TCI for high-dimensional Gaussian integral
+- [x] **Phase 1.5:** QTT numerical stability fixes
+- [x] **Phase 1.6:** Adaptive Cross Interpolation (ACI)
+- [x] **Phase 2:** Holstein polaron 2nd-order self-energy (Feynman diagrams)
+- [x] **Phase 3:** 4th-order self-energy, benchmarking
+- [x] **Phase 4:** Direct 4D TCI on full integrand — CUR-based TT integration
 
 ### Phase 5: Precision & Representation Optimization (Near-term)
 
-- [x] **5a: Imaginary-time τ representation** — $G_0(\tau)$ propagator + first-moment tail subtraction + analytic $D_0^{\text{FT}}(i\omega')$, $O(1/N_\tau^2)$ convergence ✅
+- [x] **5a: Imaginary-time τ representation** — $G_0(\tau)$ propagator + first-moment tail subtraction + analytic $D_0^{\text{FT}}(i\omega')$, $O(1/N_\tau^2)$ convergence
 - [ ] **5b: Coordinate rotation to eliminate diagonal coupling** — $(q_1, q_2) \to (Q, q_-)$ makes momentum conservation $q_1+q_2=Q$ a direct-product structure, improving CUR convergence
 - [ ] **5c: 6th-order self-energy Σ(6)** — 6D integral, truly demonstrating TCI complexity advantage over brute force: $O(r \cdot N^3)$ vs $O(N^6)$
 - [ ] **5d: Comparison with TCI.jl** — Julia's TensorCrossInterpolation.jl provides explicit TT-cores, enabling standard TT integration to verify CUR approximation bottlenecks
@@ -207,7 +207,7 @@ print(f"Σ(2) TCI:         {sigma_tci:.8f}")
 - [ ] **6c: 2D Holstein** — 2D model, momentum integral 1D → 2D, self-energy dimensions 4D → 6D
 
 
-## 📖 Background
+## Background
 
 The interaction between electrons and lattice vibrations (phonons) is fundamental to understanding superconductivity and charge transport. The **Holstein model** describes an electron coupled to dispersionless optical phonons:
 
@@ -215,7 +215,7 @@ $$H = -t \sum_{\langle i,j \rangle} c_i^\dagger c_j + \omega_0 \sum_i a_i^\dagge
 
 Standard numerical methods struggle with the "curse of dimensionality" at higher perturbation orders. This project explores **Tensor Cross Interpolation** as an alternative for compressing Feynman diagram integrands.
 
-## 📚 References
+## References
 
 - Oseledets, I. (2011). Tensor-Train Decomposition. *SIAM J. Sci. Comput.*
 - Savostyanov, D. & Oseledets, I. (2011). Fast Adaptive Interpolation of Multi-dimensional Arrays. *LNCS*
